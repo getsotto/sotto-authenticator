@@ -4,7 +4,7 @@ Sotto Authenticator is an open-source, project-aware authenticator for people wh
 
 ## Project status
 
-This repository is at the native platform and shared-core proof stage. The iOS and Android shells call the same Rust function through generated UniFFI bindings. It does not store accounts or secrets, generate OTP codes, synchronize data, or connect to a service.
+This repository is at the native platform and shared-core proof stage. The iOS and Android shells call the same Rust library through generated UniFFI bindings. The shared core can generate deterministic TOTP codes from caller-supplied parameters and time; the apps do not yet store accounts or secrets, synchronize data, or connect to a service. See the [TOTP core note](docs/engineering/totp-core.md).
 
 The agreed product direction is mobile first, native on iOS and Android, with a shared Rust domain core. The current spike exists to validate that platform boundary before account, cryptography, storage, and user experience decisions are implemented. See [architecture decisions](docs/decisions/0001-native-clients-and-shared-rust-core.md) and [PR 01 engineering plan](docs/engineering/pr-01-native-client-bridge.md).
 

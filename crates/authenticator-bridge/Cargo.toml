@@ -10,4 +10,10 @@ name = "authenticator_bridge"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+data-encoding = "2.9"
+hmac = "0.13"
+sha1 = "0.11"
+sha2 = "0.11"
+thiserror = "2"
 uniffi = "0.32.2"
+zeroize = "1"
