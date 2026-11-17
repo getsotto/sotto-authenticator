@@ -1,0 +1,9 @@
+.DS_Store
+/build/
+/target/
+**/.gradle/
+**/build/
+apps/android/app/src/main/jniLibs/
+**/.swiftpm/
+*.xcuserstate
+xcuserdata/

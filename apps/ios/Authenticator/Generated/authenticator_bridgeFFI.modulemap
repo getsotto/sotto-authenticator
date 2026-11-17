@@ -1,0 +1,7 @@
+module authenticator_bridgeFFI {
+    header "authenticator_bridgeFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}
