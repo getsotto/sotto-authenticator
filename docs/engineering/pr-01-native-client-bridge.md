@@ -1,6 +1,6 @@
 # PR 01: native client and shared Rust bridge
 
-- Status: implementation and local simulator/emulator verification complete; draft PR pending
+- Status: implementation and local simulator/emulator verification complete; [PR #1 is open](https://github.com/getsotto/sotto-authenticator/pull/1)
 - Scope: prove native iOS and Android shells call one Rust library through generated bindings
 - Related decision: [ADR 0001](../decisions/0001-native-clients-and-shared-rust-core.md)
 
