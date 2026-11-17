@@ -17,6 +17,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.getsotto.authenticator.spike
         PRODUCT_NAME: SottoAuthenticatorSpike
         INFOPLIST_KEY_CFBundleDisplayName: Sotto Authenticator Spike
+        INFOPLIST_KEY_NSFaceIDUsageDescription: Authenticate to use a disposable synthetic signing key.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Authenticator/Generated"
