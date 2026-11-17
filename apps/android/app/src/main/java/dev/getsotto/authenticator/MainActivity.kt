@@ -17,7 +17,30 @@ import androidx.compose.ui.unit.dp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val message = platformMessage()
+        val parameters = TotpParameters(
+            digits = 8u.toUByte(),
+            periodSeconds = 30u,
+            algorithm = TotpAlgorithm.SHA1,
+        )
+        val code = try {
+            generateTotpCode(
+                secretBase32 = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", // gitleaks:allow -- public RFC 6238 Appendix B test vector, not a credential
+                unixTimeSeconds = 59L,
+                parameters = parameters,
+            )
+        } catch (_: TotpException) {
+            "Could not generate the synthetic code."
+        }
+        val invalidInputOutcome = try {
+            generateTotpCode(
+                secretBase32 = "NOT*BASE32",
+                unixTimeSeconds = 59L,
+                parameters = parameters,
+            )
+            "Invalid synthetic input was unexpectedly accepted."
+        } catch (_: TotpException) {
+            "Invalid synthetic input was safely rejected."
+        }
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -29,7 +52,10 @@ class MainActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text("Sotto Authenticator native spike")
-                        Text(message)
+                        Text("Synthetic RFC 6238 Appendix B vector")
+                        Text("Unix timestamp 59 · 30-second period · 8 digits")
+                        Text(code)
+                        Text(invalidInputOutcome)
                     }
                 }
             }
