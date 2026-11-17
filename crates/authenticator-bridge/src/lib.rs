@@ -144,7 +144,7 @@ pub fn platform_message() -> String {
 #[cfg(test)]
 mod tests {
     use super::{generate_totp_code, platform_message, TotpAlgorithm, TotpError, TotpParameters};
-    use data_encoding::BASE32_NOPAD;
+    use data_encoding::{BASE32, BASE32_NOPAD};
 
     fn parameters(algorithm: TotpAlgorithm, digits: u8) -> TotpParameters {
         TotpParameters {
@@ -215,13 +215,18 @@ mod tests {
             generate_totp_code(lower, 59, parameters(TotpAlgorithm::Sha1, 8)),
             Ok("94287082".to_owned())
         );
+
+        let raw_seed = b"123456789012345678901";
+        let padded = BASE32.encode(raw_seed);
+        let unpadded = BASE32_NOPAD.encode(raw_seed);
+        assert!(padded.ends_with('='));
         assert_eq!(
-            generate_totp_code(
-                "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".to_owned(),
-                59,
-                parameters(TotpAlgorithm::Sha1, 8)
-            ),
-            Ok("94287082".to_owned())
+            generate_totp_code(padded, 59, parameters(TotpAlgorithm::Sha1, 8)),
+            Ok("76798304".to_owned())
+        );
+        assert_eq!(
+            generate_totp_code(unpadded, 59, parameters(TotpAlgorithm::Sha1, 8)),
+            Ok("76798304".to_owned())
         );
     }
 
