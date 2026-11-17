@@ -465,6 +465,54 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
+    typealias FfiType = Int64
+    typealias SwiftType = Int64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int64, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -507,6 +555,297 @@ fileprivate struct FfiConverterString: FfiConverter {
         writeBytes(&buf, value.utf8)
     }
 }
+
+
+/**
+ * Parameters for deterministic TOTP generation.
+ */
+public struct TotpParameters: Equatable, Hashable {
+    /**
+     * Length of the decimal code. Supported values are 6, 7, and 8.
+     */
+    public var digits: UInt8
+    /**
+     * Duration of a time step in seconds. Must be greater than zero.
+     */
+    public var periodSeconds: UInt32
+    /**
+     * HMAC algorithm to use.
+     */
+    public var algorithm: TotpAlgorithm
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Length of the decimal code. Supported values are 6, 7, and 8.
+         */digits: UInt8,
+        /**
+         * Duration of a time step in seconds. Must be greater than zero.
+         */periodSeconds: UInt32,
+        /**
+         * HMAC algorithm to use.
+         */algorithm: TotpAlgorithm) {
+        self.digits = digits
+        self.periodSeconds = periodSeconds
+        self.algorithm = algorithm
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TotpParameters: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTotpParameters: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TotpParameters {
+        return
+            try TotpParameters(
+                digits: FfiConverterUInt8.read(from: &buf),
+                periodSeconds: FfiConverterUInt32.read(from: &buf),
+                algorithm: FfiConverterTypeTotpAlgorithm.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TotpParameters, into buf: inout [UInt8]) {
+        FfiConverterUInt8.write(value.digits, into: &buf)
+        FfiConverterUInt32.write(value.periodSeconds, into: &buf)
+        FfiConverterTypeTotpAlgorithm.write(value.algorithm, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTotpParameters_lift(_ buf: RustBuffer) throws -> TotpParameters {
+    return try FfiConverterTypeTotpParameters.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTotpParameters_lower(_ value: TotpParameters) -> RustBuffer {
+    return FfiConverterTypeTotpParameters.lower(value)
+}
+
+
+/**
+ * HMAC algorithm used to generate a time-based one-time password.
+ */
+
+public enum TotpAlgorithm: Equatable, Hashable {
+
+    /**
+     * HMAC-SHA1, the interoperable RFC 6238 baseline.
+     */
+    case sha1
+    /**
+     * HMAC-SHA256.
+     */
+    case sha256
+    /**
+     * HMAC-SHA512.
+     */
+    case sha512
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TotpAlgorithm: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTotpAlgorithm: FfiConverterRustBuffer {
+    typealias SwiftType = TotpAlgorithm
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TotpAlgorithm {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        case 1: return .sha1
+
+        case 2: return .sha256
+
+        case 3: return .sha512
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TotpAlgorithm, into buf: inout [UInt8]) {
+        switch value {
+
+
+        case .sha1:
+            writeInt(&buf, Int32(1))
+
+
+        case .sha256:
+            writeInt(&buf, Int32(2))
+
+
+        case .sha512:
+            writeInt(&buf, Int32(3))
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTotpAlgorithm_lift(_ buf: RustBuffer) throws -> TotpAlgorithm {
+    return try FfiConverterTypeTotpAlgorithm.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTotpAlgorithm_lower(_ value: TotpAlgorithm) -> RustBuffer {
+    return FfiConverterTypeTotpAlgorithm.lower(value)
+}
+
+
+
+/**
+ * Input validation failures from TOTP generation.
+ *
+ * Error messages are deliberately generic and never include secret material.
+ */
+public
+enum TotpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+
+
+    case InvalidTimestamp
+    case InvalidPeriod
+    case InvalidDigits
+    case EmptySecret
+    case SecretTooLong
+    case InvalidSecretEncoding
+
+
+
+
+
+
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+
+}
+
+#if compiler(>=6)
+extension TotpError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTotpError: FfiConverterRustBuffer {
+    typealias SwiftType = TotpError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TotpError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+
+
+
+        case 1: return .InvalidTimestamp
+        case 2: return .InvalidPeriod
+        case 3: return .InvalidDigits
+        case 4: return .EmptySecret
+        case 5: return .SecretTooLong
+        case 6: return .InvalidSecretEncoding
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TotpError, into buf: inout [UInt8]) {
+        switch value {
+
+
+
+
+
+        case .InvalidTimestamp:
+            writeInt(&buf, Int32(1))
+
+
+        case .InvalidPeriod:
+            writeInt(&buf, Int32(2))
+
+
+        case .InvalidDigits:
+            writeInt(&buf, Int32(3))
+
+
+        case .EmptySecret:
+            writeInt(&buf, Int32(4))
+
+
+        case .SecretTooLong:
+            writeInt(&buf, Int32(5))
+
+
+        case .InvalidSecretEncoding:
+            writeInt(&buf, Int32(6))
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTotpError_lift(_ buf: RustBuffer) throws -> TotpError {
+    return try FfiConverterTypeTotpError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTotpError_lower(_ value: TotpError) -> RustBuffer {
+    return FfiConverterTypeTotpError.lower(value)
+}
+/**
+ * Generate a TOTP code for the supplied Unix timestamp.
+ *
+ * The caller controls time; this function never reads a system clock. The
+ * secret must be Base32-encoded and is accepted with or without RFC 4648
+ * padding, in either case. Decoded secrets are limited to 128 bytes.
+ *
+ * Secret buffers owned here are zeroized on drop where supported. Copies
+ * made by the caller, FFI layer, compiler, or HMAC implementation may remain;
+ * zeroization is best-effort and is not a guarantee about process memory.
+ */
+public func generateTotpCode(secretBase32: String, unixTimeSeconds: Int64, parameters: TotpParameters)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeTotpError_lift) {
+        uniffiCallStatus in
+    uniffi_authenticator_bridge_fn_func_generate_totp_code(
+        FfiConverterString.lower(secretBase32),
+        FfiConverterInt64.lower(unixTimeSeconds),
+        FfiConverterTypeTotpParameters_lower(parameters),uniffiCallStatus
+    )
+})
+}
 /**
  * Returns a fixed message so native clients can prove they called this Rust library.
  */
@@ -532,6 +871,9 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_authenticator_bridge_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_authenticator_bridge_checksum_func_generate_totp_code() != 34489) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_authenticator_bridge_checksum_func_platform_message() != 58942) {
         return InitializationResult.apiChecksumMismatch

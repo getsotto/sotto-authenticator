@@ -243,6 +243,11 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureRes
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_AUTHENTICATOR_BRIDGE_FN_FUNC_GENERATE_TOTP_CODE
+#define UNIFFI_FFIDEF_UNIFFI_AUTHENTICATOR_BRIDGE_FN_FUNC_GENERATE_TOTP_CODE
+RustBuffer uniffi_authenticator_bridge_fn_func_generate_totp_code(RustBuffer secret_base32, int64_t unix_time_seconds, RustBuffer parameters, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_AUTHENTICATOR_BRIDGE_FN_FUNC_PLATFORM_MESSAGE
 #define UNIFFI_FFIDEF_UNIFFI_AUTHENTICATOR_BRIDGE_FN_FUNC_PLATFORM_MESSAGE
 RustBuffer uniffi_authenticator_bridge_fn_func_platform_message(RustCallStatus *_Nonnull out_status
@@ -507,6 +512,12 @@ void ffi_authenticator_bridge_rust_future_free_void(uint64_t handle
 #ifndef UNIFFI_FFIDEF_FFI_AUTHENTICATOR_BRIDGE_RUST_FUTURE_COMPLETE_VOID
 #define UNIFFI_FFIDEF_FFI_AUTHENTICATOR_BRIDGE_RUST_FUTURE_COMPLETE_VOID
 void ffi_authenticator_bridge_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_AUTHENTICATOR_BRIDGE_CHECKSUM_FUNC_GENERATE_TOTP_CODE
+#define UNIFFI_FFIDEF_UNIFFI_AUTHENTICATOR_BRIDGE_CHECKSUM_FUNC_GENERATE_TOTP_CODE
+uint16_t uniffi_authenticator_bridge_checksum_func_generate_totp_code(void
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_AUTHENTICATOR_BRIDGE_CHECKSUM_FUNC_PLATFORM_MESSAGE

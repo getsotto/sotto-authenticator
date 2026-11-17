@@ -674,6 +674,8 @@ internal object IntegrityCheckingUniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_authenticator_bridge_checksum_func_generate_totp_code(
+    ): Int
     external fun uniffi_authenticator_bridge_checksum_func_platform_message(
     ): Int
     external fun ffi_authenticator_bridge_uniffi_contract_version(
@@ -691,6 +693,8 @@ internal object UniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_authenticator_bridge_fn_func_generate_totp_code(`secretBase32`: RustBuffer.ByValue,`unixTimeSeconds`: Long,`parameters`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
     external fun uniffi_authenticator_bridge_fn_func_platform_message(uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
     external fun ffi_authenticator_bridge_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
@@ -812,6 +816,9 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if ((lib.uniffi_authenticator_bridge_checksum_func_generate_totp_code() and 0xFFFF) != 34489) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_authenticator_bridge_checksum_func_platform_message() and 0xFFFF) != 58942) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -911,6 +918,79 @@ object NoHandle
 /**
  * @suppress
  */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterLong: FfiConverter<Long, Long> {
+    override fun lift(value: Long): Long {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Long {
+        return buf.getLong()
+    }
+
+    override fun lower(value: Long): Long {
+        return value
+    }
+
+    override fun allocationSize(value: Long) = 8UL
+
+    override fun write(value: Long, buf: ByteBuffer) {
+        buf.putLong(value)
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     // Note: we don't inherit from FfiConverterRustBuffer, because we use a
     // special encoding when lowering/lifting.  We can use `RustBuffer.len` to
@@ -964,6 +1044,269 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         buf.put(byteBuf)
     }
 }
+
+
+
+/**
+ * Parameters for deterministic TOTP generation.
+ */
+data class TotpParameters (
+    /**
+     * Length of the decimal code. Supported values are 6, 7, and 8.
+     */
+    var `digits`: kotlin.UByte
+    ,
+    /**
+     * Duration of a time step in seconds. Must be greater than zero.
+     */
+    var `periodSeconds`: kotlin.UInt
+    ,
+    /**
+     * HMAC algorithm to use.
+     */
+    var `algorithm`: TotpAlgorithm
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTotpParameters: FfiConverterRustBuffer<TotpParameters> {
+    override fun read(buf: ByteBuffer): TotpParameters {
+        return TotpParameters(
+            FfiConverterUByte.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeTotpAlgorithm.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TotpParameters) = (
+            FfiConverterUByte.allocationSize(value.`digits`) +
+            FfiConverterUInt.allocationSize(value.`periodSeconds`) +
+            FfiConverterTypeTotpAlgorithm.allocationSize(value.`algorithm`)
+    )
+
+    override fun write(value: TotpParameters, buf: ByteBuffer) {
+            FfiConverterUByte.write(value.`digits`, buf)
+            FfiConverterUInt.write(value.`periodSeconds`, buf)
+            FfiConverterTypeTotpAlgorithm.write(value.`algorithm`, buf)
+    }
+}
+
+
+
+/**
+ * HMAC algorithm used to generate a time-based one-time password.
+ */
+
+enum class TotpAlgorithm {
+
+    /**
+     * HMAC-SHA1, the interoperable RFC 6238 baseline.
+     */
+    SHA1,
+    /**
+     * HMAC-SHA256.
+     */
+    SHA256,
+    /**
+     * HMAC-SHA512.
+     */
+    SHA512;
+
+
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTotpAlgorithm: FfiConverterRustBuffer<TotpAlgorithm> {
+    override fun read(buf: ByteBuffer) = try {
+        TotpAlgorithm.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: TotpAlgorithm) = 4UL
+
+    override fun write(value: TotpAlgorithm, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+
+/**
+ * Input validation failures from TOTP generation.
+ *
+ * Error messages are deliberately generic and never include secret material.
+ */
+sealed class TotpException: kotlin.Exception() {
+
+    class InvalidTimestamp(
+        ) : TotpException() {
+        override val message
+            get() = ""
+    }
+
+    class InvalidPeriod(
+        ) : TotpException() {
+        override val message
+            get() = ""
+    }
+
+    class InvalidDigits(
+        ) : TotpException() {
+        override val message
+            get() = ""
+    }
+
+    class EmptySecret(
+        ) : TotpException() {
+        override val message
+            get() = ""
+    }
+
+    class SecretTooLong(
+        ) : TotpException() {
+        override val message
+            get() = ""
+    }
+
+    class InvalidSecretEncoding(
+        ) : TotpException() {
+        override val message
+            get() = ""
+    }
+
+
+
+
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<TotpException> {
+        override fun lift(error_buf: RustBuffer.ByValue): TotpException = FfiConverterTypeTotpError.lift(error_buf)
+    }
+
+
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTotpError : FfiConverterRustBuffer<TotpException> {
+    override fun read(buf: ByteBuffer): TotpException {
+
+
+        return when(buf.getInt()) {
+            1 -> TotpException.InvalidTimestamp()
+            2 -> TotpException.InvalidPeriod()
+            3 -> TotpException.InvalidDigits()
+            4 -> TotpException.EmptySecret()
+            5 -> TotpException.SecretTooLong()
+            6 -> TotpException.InvalidSecretEncoding()
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: TotpException): ULong {
+        return when(value) {
+            is TotpException.InvalidTimestamp -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TotpException.InvalidPeriod -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TotpException.InvalidDigits -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TotpException.EmptySecret -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TotpException.SecretTooLong -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TotpException.InvalidSecretEncoding -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: TotpException, buf: ByteBuffer) {
+        when(value) {
+            is TotpException.InvalidTimestamp -> {
+                buf.putInt(1)
+                Unit
+            }
+            is TotpException.InvalidPeriod -> {
+                buf.putInt(2)
+                Unit
+            }
+            is TotpException.InvalidDigits -> {
+                buf.putInt(3)
+                Unit
+            }
+            is TotpException.EmptySecret -> {
+                buf.putInt(4)
+                Unit
+            }
+            is TotpException.SecretTooLong -> {
+                buf.putInt(5)
+                Unit
+            }
+            is TotpException.InvalidSecretEncoding -> {
+                buf.putInt(6)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+        /**
+         * Generate a TOTP code for the supplied Unix timestamp.
+         *
+         * The caller controls time; this function never reads a system clock. The
+         * secret must be Base32-encoded and is accepted with or without RFC 4648
+         * padding, in either case. Decoded secrets are limited to 128 bytes.
+         *
+         * Secret buffers owned here are zeroized on drop where supported. Copies
+         * made by the caller, FFI layer, compiler, or HMAC implementation may remain;
+         * zeroization is best-effort and is not a guarantee about process memory.
+         */
+    @Throws(TotpException::class) fun `generateTotpCode`(`secretBase32`: kotlin.String, `unixTimeSeconds`: kotlin.Long, `parameters`: TotpParameters): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(TotpException) { _status ->
+    UniffiLib.uniffi_authenticator_bridge_fn_func_generate_totp_code(
+
+
+        FfiConverterString.lower(`secretBase32`),
+        FfiConverterLong.lower(`unixTimeSeconds`),
+        FfiConverterTypeTotpParameters.lower(`parameters`),_status)
+}
+    )
+    }
+
+
         /**
          * Returns a fixed message so native clients can prove they called this Rust library.
          */ fun `platformMessage`(): kotlin.String {
