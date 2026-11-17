@@ -1,0 +1,13 @@
+[package]
+name = "authenticator-bridge"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "authenticator_bridge"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+uniffi = "0.32.2"

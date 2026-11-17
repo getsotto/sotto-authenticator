@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/authenticator-bridge", "tools/uniffi-bindgen"]
+resolver = "2"
