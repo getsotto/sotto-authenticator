@@ -14,6 +14,10 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-spike"
+
+        ndk {
+            abiFilters += setOf("arm64-v8a", "x86_64")
+        }
     }
 
     buildFeatures {

@@ -13,7 +13,7 @@ Each minimal app displays a fixed message returned by the same Rust function. Th
 1. Workspace root owns an isolated `authenticator-bridge` Rust library and a host-only `authenticator-bindgen` tool. The UniFFI CLI dependency must not be enabled in native targets.
 2. UniFFI exports a minimal, no-secret function. Generated Swift/Kotlin source is checked in; generated native binaries are not. The generator is a host-only workspace tool, not part of native target dependency graphs.
 3. iOS is a SwiftUI app linked to a locally built iOS XCFramework.
-4. Android is a Compose app loading the Rust library through UniFFI's Kotlin/JNA binding.
+4. Android is a Compose app loading the Rust library through UniFFI's Kotlin/JNA binding. APK ABI filters match the Rust libraries built for `arm64-v8a` and `x86_64`.
 5. Scripts regenerate bindings and build platform libraries. Gradle wrapper pins the Android build distribution.
 6. No backend, remote service, account model, persistent data, or production security claim is added.
 
@@ -30,9 +30,12 @@ Record the exact result and tool version for each check in the PR body:
 - `./scripts/smoke-swift-bridge.sh`
 - `./scripts/build-rust-ios.sh` and simulator app build/launch
 - `./scripts/build-rust-android.sh` and Gradle assemble/emulator launch
+- Inspect the APK native-library entries to confirm supported ABIs match the built Rust libraries.
 - `git diff --check`
 
 Local evidence on 2026-11-16: `cargo test -p authenticator-bridge` passed (1 test); Swift bridge smoke printed the shared Rust message; repeated binding generation produced identical SHA-256 hashes for all four generated files; iOS simulator build and launch passed on iPhone 17 Pro / iOS 26.5; Android `assembleDebug`, install, and launch passed on Pixel 10 / API 37. Physical devices were not tested.
+
+Copilot review follow-up on 2026-11-17: `./gradlew assembleDebug` passed with ABI filters set; APK inspection confirmed native libraries are packaged only for `arm64-v8a` and `x86_64`, with `libauthenticator_bridge.so` present in both.
 
 Simulator and emulator evidence must be labeled accurately; neither implies a physical-device test. If either app cannot be built and launched, keep the PR in draft and state the exact blocker.
 
