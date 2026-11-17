@@ -39,9 +39,10 @@ cd apps/android && ./gradlew assembleDebug
 
 Install and launch the iOS build in the selected simulator, or install the
 Android APK on an API 37 emulator. Confirm both show `94287082` and the generic
-invalid-input rejection. Inspect the Android APK with `unzip -l` to confirm it
-contains only `lib/arm64-v8a/libauthenticator_bridge.so` and
-`lib/x86_64/libauthenticator_bridge.so`.
+invalid-input rejection. Inspect the Android APK with `unzip -l` to confirm the
+bridge library is present at `lib/arm64-v8a/libauthenticator_bridge.so` and
+`lib/x86_64/libauthenticator_bridge.so`. Other dependencies, including JNA,
+package their own native libraries in those ABI directories.
 
 ## Evidence and limits
 
