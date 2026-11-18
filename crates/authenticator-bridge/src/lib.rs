@@ -61,6 +61,7 @@ pub fn encrypt_test_snapshot(
     nonce: Vec<u8>,
     snapshot_json: String,
 ) -> Result<Vec<u8>, TestSnapshotError> {
+    let key = Zeroizing::new(key);
     if key.len() != SNAPSHOT_KEY_LEN {
         return Err(TestSnapshotError::InvalidKey);
     }
@@ -96,6 +97,7 @@ pub fn encrypt_test_snapshot(
 /// sensitive data in real applications; this spike uses synthetic data only.
 #[uniffi::export]
 pub fn decrypt_test_snapshot(key: Vec<u8>, envelope: Vec<u8>) -> Result<String, TestSnapshotError> {
+    let key = Zeroizing::new(key);
     if key.len() != SNAPSHOT_KEY_LEN {
         return Err(TestSnapshotError::InvalidKey);
     }
