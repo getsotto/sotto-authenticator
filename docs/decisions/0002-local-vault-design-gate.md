@@ -1,6 +1,6 @@
 # ADR 0002: proceed to a local vault design gate
 
-- Status: accepted for the next bounded design stage
+- Status: proposed; maintainer confirmation required
 - Date: 2026-11-18
 - Evidence: [Step 1 threat model and architecture gate](../engineering/step-1-threat-model-and-architecture-gate.md)
 
@@ -22,7 +22,7 @@ The first implementation should keep recurring infrastructure cost close to
 zero. Cross-platform migration is a product requirement, so a device-bound key
 cannot be the only way to recover credential data.
 
-## Decision
+## Proposed decision
 
 - Proceed to a bounded design and local-only credential-storage spike.
 - Retain native iOS/Android clients, a shared Rust domain core, and the UniFFI
@@ -36,7 +36,7 @@ cannot be the only way to recover credential data.
 - Keep hosted services, sync, and object storage out of the next stage. The
   local-only stage requires no recurring infrastructure.
 
-## Consequences
+## Consequences if accepted
 
 The next stage is allowed to compare and prototype storage and recovery
 approaches using synthetic fixtures. It is not allowed to accept real account

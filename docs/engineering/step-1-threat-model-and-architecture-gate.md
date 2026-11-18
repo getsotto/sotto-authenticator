@@ -17,7 +17,7 @@ infrastructure, app-store distribution, or a security claim. The current work
 requires no hosted service, so the recurring infrastructure cost for this next
 local-only stage can remain zero.
 
-The decision is recorded in [ADR 0002](../decisions/0002-local-vault-design-gate.md).
+The proposed decision is recorded in [ADR 0002](../decisions/0002-local-vault-design-gate.md) for maintainer confirmation.
 
 ## Evidence reviewed
 
