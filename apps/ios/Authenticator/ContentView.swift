@@ -4,9 +4,11 @@ import authenticator_bridgeFFI
 struct ContentView: View {
     @StateObject private var experiment = ProtectedKeyExperiment()
     @StateObject private var snapshotExperiment = SnapshotInteropExperiment()
+    @StateObject private var vaultExperiment = VaultKeyExperiment()
 
     var body: some View {
-        VStack(spacing: 20) {
+        ScrollView {
+            VStack(spacing: 20) {
             Text("iOS protected key experiment")
                 .font(.headline)
             Text("Synthetic Secure Enclave P-256 signing key. No account data or key material is displayed.")
@@ -52,7 +54,40 @@ struct ContentView: View {
             Text(snapshotExperiment.status)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("snapshot-status")
+
+            Divider()
+
+            Text("Temporary native vault-key experiment")
+                .font(.headline)
+            Text("Uses a synthetic AES key protected by Keychain user presence. The key enters app memory after authentication; the encrypted fixture remains in memory only.")
+                .multilineTextAlignment(.center)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Create synthetic AES key") {
+                vaultExperiment.createTestKey()
+            }
+            .disabled(vaultExperiment.hasTestKey)
+            Button("Authenticate and encrypt fixture") {
+                vaultExperiment.encryptFixture()
+            }
+            .disabled(!vaultExperiment.hasTestKey)
+            Button("Authenticate and decrypt fixture") {
+                vaultExperiment.decryptFixture()
+            }
+            .disabled(!vaultExperiment.hasEnvelope)
+            Button("Authenticate and reject modified fixture") {
+                vaultExperiment.decryptFixture(tampered: true)
+            }
+            .disabled(!vaultExperiment.hasEnvelope)
+            Button("Delete synthetic AES key", role: .destructive) {
+                vaultExperiment.deleteTestKey()
+            }
+            .disabled(!vaultExperiment.hasTestKey)
+            Text(vaultExperiment.status)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("vault-key-status")
+            }
+            .padding(24)
         }
-        .padding(24)
     }
 }
