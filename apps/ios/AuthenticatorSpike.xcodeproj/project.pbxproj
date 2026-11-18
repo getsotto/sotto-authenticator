@@ -10,17 +10,32 @@
 		1810A5B68C4B6B0DBA0ED491 /* ProtectedKeyExperiment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */; };
 		677A94F3C51634140BB2F599 /* authenticator_bridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706CDBDD56D1ECB5D2B048A4 /* authenticator_bridge.swift */; };
 		BBD84968578597F1CBB2725D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE256014C46BCA67C2179AF /* ContentView.swift */; };
+		BD8CC1D4F6BC3AC9F10E70D1 /* SnapshotInteropExperiment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19FEBB344B4EFA230E0D24E /* SnapshotInteropExperiment.swift */; };
+		D938454BF59D39D327792CE4 /* SnapshotInteropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5236586C59ED7DE2362676E4 /* SnapshotInteropTests.swift */; };
 		EE206A4E3D701942096BEFE6 /* AuthenticatorCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B3C6C4A46B6C4E065D5D4444 /* AuthenticatorCore.xcframework */; };
 		EF0CF91D4D238A535AE50F44 /* AuthenticatorSpikeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700FBDD94251292D90755DB /* AuthenticatorSpikeApp.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		B6679416CFC968754EE6797B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 24F0CD2054B8E68864D03522 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0DC08A9EA2546A9840ED1005;
+			remoteInfo = AuthenticatorSpike;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		13088C350EB4FF76681BDC2D /* authenticator_bridgeFFI.modulemap */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; path = authenticator_bridgeFFI.modulemap; sourceTree = "<group>"; };
 		41A217F0C9C43CD2599738A0 /* authenticator_bridgeFFI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = authenticator_bridgeFFI.h; sourceTree = "<group>"; };
+		5236586C59ED7DE2362676E4 /* SnapshotInteropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotInteropTests.swift; sourceTree = "<group>"; };
+		5EBC5B78C460B4E9856E7D55 /* AuthenticatorSpikeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AuthenticatorSpikeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		706CDBDD56D1ECB5D2B048A4 /* authenticator_bridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = authenticator_bridge.swift; sourceTree = "<group>"; };
 		8700FBDD94251292D90755DB /* AuthenticatorSpikeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticatorSpikeApp.swift; sourceTree = "<group>"; };
 		B3C6C4A46B6C4E065D5D4444 /* AuthenticatorCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = AuthenticatorCore.xcframework; path = ../../build/ios/AuthenticatorCore.xcframework; sourceTree = "<group>"; };
 		BFE256014C46BCA67C2179AF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C19FEBB344B4EFA230E0D24E /* SnapshotInteropExperiment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotInteropExperiment.swift; sourceTree = "<group>"; };
 		F035DB40393573393743301E /* AuthenticatorSpike.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AuthenticatorSpike.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectedKeyExperiment.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -37,6 +52,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		203DB9D4B0D18169AF04739A /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				5236586C59ED7DE2362676E4 /* SnapshotInteropTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
 		3200BD572A7F0D250A9F8667 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -49,6 +72,7 @@
 			isa = PBXGroup;
 			children = (
 				9F282ACBFE94144C2BFDA1BE /* Authenticator */,
+				203DB9D4B0D18169AF04739A /* Tests */,
 				3200BD572A7F0D250A9F8667 /* Frameworks */,
 				A86782B1382DC169A972F688 /* Products */,
 			);
@@ -60,6 +84,7 @@
 				8700FBDD94251292D90755DB /* AuthenticatorSpikeApp.swift */,
 				BFE256014C46BCA67C2179AF /* ContentView.swift */,
 				F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */,
+				C19FEBB344B4EFA230E0D24E /* SnapshotInteropExperiment.swift */,
 				D830528431D5EB932404BFEB /* Generated */,
 			);
 			path = Authenticator;
@@ -69,6 +94,7 @@
 			isa = PBXGroup;
 			children = (
 				F035DB40393573393743301E /* AuthenticatorSpike.app */,
+				5EBC5B78C460B4E9856E7D55 /* AuthenticatorSpikeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -104,6 +130,24 @@
 			productReference = F035DB40393573393743301E /* AuthenticatorSpike.app */;
 			productType = "com.apple.product-type.application";
 		};
+		9F7D9334E0664B601C8B8B71 /* AuthenticatorSpikeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E599103A3F694EF5A6D61638 /* Build configuration list for PBXNativeTarget "AuthenticatorSpikeTests" */;
+			buildPhases = (
+				3F56C9CCBE1CB05A824B6BBF /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				74B5DBD3DFFDBDB7303E2481 /* PBXTargetDependency */,
+			);
+			name = AuthenticatorSpikeTests;
+			packageProductDependencies = (
+			);
+			productName = AuthenticatorSpikeTests;
+			productReference = 5EBC5B78C460B4E9856E7D55 /* AuthenticatorSpikeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -130,11 +174,20 @@
 			projectRoot = "";
 			targets = (
 				0DC08A9EA2546A9840ED1005 /* AuthenticatorSpike */,
+				9F7D9334E0664B601C8B8B71 /* AuthenticatorSpikeTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		3F56C9CCBE1CB05A824B6BBF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D938454BF59D39D327792CE4 /* SnapshotInteropTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EF01CAFB91D964B559067551 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -142,11 +195,20 @@
 				EF0CF91D4D238A535AE50F44 /* AuthenticatorSpikeApp.swift in Sources */,
 				BBD84968578597F1CBB2725D /* ContentView.swift in Sources */,
 				1810A5B68C4B6B0DBA0ED491 /* ProtectedKeyExperiment.swift in Sources */,
+				BD8CC1D4F6BC3AC9F10E70D1 /* SnapshotInteropExperiment.swift in Sources */,
 				677A94F3C51634140BB2F599 /* authenticator_bridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		74B5DBD3DFFDBDB7303E2481 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0DC08A9EA2546A9840ED1005 /* AuthenticatorSpike */;
+			targetProxy = B6679416CFC968754EE6797B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		026470E2E780BE0B327B819F /* Release */ = {
@@ -324,6 +386,46 @@
 			};
 			name = Debug;
 		};
+		B996A4775BB12870C660B2B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Authenticator/Generated";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(SRCROOT)/Authenticator/Generated/authenticator_bridgeFFI.modulemap";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.getsotto.authenticator.spike.tests;
+				SDKROOT = iphoneos;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Authenticator/Generated";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SottoAuthenticatorSpike.app/SottoAuthenticatorSpike";
+			};
+			name = Release;
+		};
+		C02685EE2188C2AD51E6E986 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Authenticator/Generated";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -fmodule-map-file=$(SRCROOT)/Authenticator/Generated/authenticator_bridgeFFI.modulemap";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.getsotto.authenticator.spike.tests;
+				SDKROOT = iphoneos;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Authenticator/Generated";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SottoAuthenticatorSpike.app/SottoAuthenticatorSpike";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -341,6 +443,15 @@
 			buildConfigurations = (
 				8A37551729A40D3C82F021F9 /* Debug */,
 				026470E2E780BE0B327B819F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E599103A3F694EF5A6D61638 /* Build configuration list for PBXNativeTarget "AuthenticatorSpikeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C02685EE2188C2AD51E6E986 /* Debug */,
+				B996A4775BB12870C660B2B7 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

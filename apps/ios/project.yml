@@ -3,6 +3,15 @@ options:
   bundleIdPrefix: dev.getsotto.authenticator
   deploymentTarget:
     iOS: "17.0"
+schemes:
+  AuthenticatorSpike:
+    build:
+      targets:
+        AuthenticatorSpike: all
+        AuthenticatorSpikeTests: [test]
+    test:
+      targets:
+        - AuthenticatorSpikeTests
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -27,3 +36,18 @@ targets:
     dependencies:
       - framework: ../../build/ios/AuthenticatorCore.xcframework
         embed: false
+  AuthenticatorSpikeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: AuthenticatorSpike
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.getsotto.authenticator.spike.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SottoAuthenticatorSpike.app/SottoAuthenticatorSpike"
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Authenticator/Generated"
+        OTHER_SWIFT_FLAGS: "$(inherited) -Xcc -fmodule-map-file=$(SRCROOT)/Authenticator/Generated/authenticator_bridgeFFI.modulemap"
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/Authenticator/Generated"

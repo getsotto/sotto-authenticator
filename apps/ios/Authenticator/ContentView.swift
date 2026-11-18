@@ -3,6 +3,7 @@ import authenticator_bridgeFFI
 
 struct ContentView: View {
     @StateObject private var experiment = ProtectedKeyExperiment()
+    @StateObject private var snapshotExperiment = SnapshotInteropExperiment()
 
     var body: some View {
         VStack(spacing: 20) {
@@ -27,6 +28,30 @@ struct ContentView: View {
                 experiment.deleteTestKey()
             }
             .disabled(!experiment.hasTestKey)
+
+            Divider()
+
+            Text("Temporary encrypted snapshot interoperability")
+                .font(.headline)
+            Text("Uses a public synthetic test key. This does not use or wrap the Secure Enclave key and is not a backup format.")
+                .multilineTextAlignment(.center)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("Paste Base64 envelope from Android", text: $snapshotExperiment.envelopeBase64, axis: .vertical)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .lineLimit(2...5)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("snapshot-envelope")
+            Button("Encrypt synthetic snapshot") {
+                snapshotExperiment.encryptFixture()
+            }
+            Button("Decrypt pasted envelope") {
+                snapshotExperiment.decryptPastedEnvelope()
+            }
+            Text(snapshotExperiment.status)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("snapshot-status")
         }
         .padding(24)
     }
