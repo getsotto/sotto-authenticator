@@ -34,6 +34,14 @@ unknown header versions, nonzero reserved bytes, incomplete envelopes,
 oversize input, authentication failures, invalid UTF-8/JSON, and invalid JSON
 shape. It never attempts plaintext or alternate-format decoding.
 
+The Rust implementation uses `aes-gcm` 0.10.3 with AES-256-GCM, a 96-bit
+nonce, and a 128-bit authentication tag. Rust-owned key and plaintext buffers
+are zeroized on drop where supported. Copies in callers, FFI, the cipher, or
+compiler may remain; zeroization is best-effort and does not guarantee process
+memory erasure. See the [RustCrypto AES-GCM crate](https://docs.rs/aes-gcm/0.10.3/aes_gcm/)
+and [RFC 5116](https://www.rfc-editor.org/rfc/rfc5116.html) for the primitive
+and nonce requirements.
+
 The native harness uses a public synthetic key and nonce fixture so both apps
 can reproduce the same test vector. These bytes are intentionally not secret
 and provide no confidentiality. Reusing a nonce with a real key would be
@@ -48,6 +56,33 @@ The native harness passes only the explicitly public test key and nonce to the
 Rust core. Therefore reciprocal results demonstrate that both generated
 bindings call the same Rust envelope implementation; they do not demonstrate
 platform-protected snapshot-key handoff.
+
+### Recorded checks
+
+Executed 18 November 2026:
+
+| Environment | Check | Result |
+| --- | --- | --- |
+| Rust host | `cargo test -p authenticator-bridge` | 12 passed, including invalid keys, invalid JSON, wrong key, modified header/ciphertext, truncation, unsupported version, and size bounds |
+| iOS Simulator | iPhone 17 Pro, iOS 26.3.1, `xcodebuild test` | 3 passed: decrypt Android's shared vector, produce matching vector, reject modified ciphertext/version |
+| Android Emulator | API 37 / Android 17, `connectedAndroidTest` | 3 passed: decrypt Swift's shared vector, produce matching vector, reject modified ciphertext/version |
+| macOS Swift bridge smoke | Generated Swift binding with the host Rust library | Encrypted/decrypted the fixture and matched the shared vector |
+
+Both native binding test suites use the same public deterministic fixture. The
+Android suite decrypts the ciphertext produced by the Swift suite; both suites
+also assert that encryption produces the exact same envelope. This proves
+serialization and envelope interoperability through the generated bindings.
+It does not establish protected key exchange between real devices. No physical
+Android device was available for this spike.
+
+### Negative cases exercised
+
+- Wrong key and invalid key or nonce size.
+- Unknown version, invalid magic/reserved header, and truncated envelope.
+- Modified authenticated ciphertext/tag.
+- Invalid JSON, unsupported payload version, and invalid snapshot fields.
+- Oversized envelope or plaintext.
+- No path falls back to plaintext or another version.
 
 ## Unresolved production decisions
 

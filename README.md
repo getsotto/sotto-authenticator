@@ -4,7 +4,7 @@ Sotto Authenticator is an open-source, project-aware authenticator for people wh
 
 ## Project status
 
-This repository is at the native platform and shared-core proof stage. The Android shell calls the Rust library through generated UniFFI bindings, displays a fixed synthetic RFC 6238 vector, and hosts a disposable Android Keystore authentication experiment. The iOS shell hosts an experiment for authentication-gated Secure Enclave signing with a disposable key; it does not display the TOTP vector. The apps do not accept user-provided seeds or store accounts, synchronize data, or connect to a service. See the [TOTP core note](docs/engineering/totp-core.md), [native integration evidence](docs/engineering/native-totp-integration.md), [Android key-access findings](docs/engineering/android-device-bound-key-access.md), and [iOS key-access findings](docs/engineering/ios-device-bound-key-access.md).
+This repository is at the native platform and shared-core proof stage. The Android shell calls the Rust library through generated UniFFI bindings, displays a fixed synthetic RFC 6238 vector, and hosts a disposable Android Keystore authentication experiment. The iOS shell hosts an experiment for authentication-gated Secure Enclave signing with a disposable key; it does not display the TOTP vector. Both apps include a temporary encrypted snapshot interoperability experiment that uses a public synthetic key only; it is not a backup format or a native key handoff. The apps do not accept user-provided seeds or store accounts, synchronize data, or connect to a service. See the [TOTP core note](docs/engineering/totp-core.md), [native integration evidence](docs/engineering/native-totp-integration.md), [Android key-access findings](docs/engineering/android-device-bound-key-access.md), [iOS key-access findings](docs/engineering/ios-device-bound-key-access.md), and [snapshot interoperability findings](docs/engineering/cross-platform-encrypted-snapshot.md).
 
 The agreed product direction is mobile first, native on iOS and Android, with a shared Rust domain core. The current spike exists to validate that platform boundary before account, cryptography, storage, and user experience decisions are implemented. See [architecture decisions](docs/decisions/0001-native-clients-and-shared-rust-core.md) and [PR 01 engineering plan](docs/engineering/pr-01-native-client-bridge.md).
 
@@ -21,8 +21,13 @@ xcodegen generate --spec apps/ios/project.yml --project apps/ios
 xcodebuild -project apps/ios/AuthenticatorSpike.xcodeproj \
   -scheme AuthenticatorSpike \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild test -project apps/ios/AuthenticatorSpike.xcodeproj \
+  -scheme AuthenticatorSpike \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  CODE_SIGNING_ALLOWED=NO
 ./scripts/build-rust-android.sh
-cd apps/android && ./gradlew assembleDebug
+./apps/android/gradlew -p apps/android assembleDebug
+./apps/android/gradlew -p apps/android connectedAndroidTest
 ```
 
 The Android app can be launched on a connected emulator with `adb install -r app/build/outputs/apk/debug/app-debug.apk` followed by `adb shell am start -n dev.getsotto.authenticator/.MainActivity`.
