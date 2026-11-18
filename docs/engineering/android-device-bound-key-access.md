@@ -62,7 +62,10 @@ No physical Android device was connected.
 | Device PIN fallback with the five-second policy | Succeeded; the signature was discarded. |
 | Fallback key operation without a prompt, before authentication | Keystore rejected it as unauthenticated. |
 | Fallback key operation without a prompt after the authorization window elapsed | Keystore rejected it as unauthenticated. |
+| App background and foreground after the authorization window elapsed | Keystore rejected a no-prompt operation after returning to the app. |
 | Process force-stop and relaunch | The alias remained; a no-prompt operation was still rejected. |
+| Change the device PIN | An immediate no-prompt probe signed once; after waiting seven seconds, Keystore rejected it. The test did not isolate whether the system PIN-change flow itself refreshed the auth window. |
+| Remove the secure screen lock | The fallback alias was no longer available; the app required creating a new test key. |
 
 The five-second policy makes credential fallback available while retaining a
 Keystore-enforced authorization boundary, but it allows repeated key use
@@ -70,12 +73,13 @@ during that short window. That differs from the per-operation biometric key.
 Product policy must decide whether this usability/security tradeoff is
 acceptable; this spike does not choose a production timeout.
 
-Not tested: API 26–36 device behavior, physical-device hardware backing,
-background/foreground transitions, biometric enrollment changes, screen-lock
-removal or reset, or credential change. The code gates combined biometric and
-device-credential prompts to API 30 and later because earlier platform versions
-do not support that combination. The biometric-only mode remains available
-from the app's current minimum API level, 26.
+Not tested: API 26–36 device behavior, physical-device hardware backing, or
+biometric enrollment changes. PIN change and secure-lock removal were tested
+only on this API 37 emulator; device-specific results may differ. The code
+gates combined biometric and device-credential prompts to API 30 and later
+because earlier platform versions do not support that combination. The
+biometric-only mode remains available from the app's current minimum API level,
+26.
 
 ## Cleanup
 
