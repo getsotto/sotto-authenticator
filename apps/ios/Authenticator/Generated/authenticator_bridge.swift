@@ -556,6 +556,24 @@ fileprivate struct FfiConverterString: FfiConverter {
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterData: FfiConverterRustBuffer {
+    typealias SwiftType = Data
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        let len: Int32 = try readInt(&buf)
+        return Data(try readBytes(&buf, count: Int(len)))
+    }
+
+    public static func write(_ value: Data, into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        writeBytes(&buf, value)
+    }
+}
+
 
 /**
  * Parameters for deterministic TOTP generation.
@@ -633,6 +651,113 @@ public func FfiConverterTypeTotpParameters_lift(_ buf: RustBuffer) throws -> Tot
 #endif
 public func FfiConverterTypeTotpParameters_lower(_ value: TotpParameters) -> RustBuffer {
     return FfiConverterTypeTotpParameters.lower(value)
+}
+
+
+/**
+ * Errors from the temporary encrypted snapshot interoperability spike.
+ *
+ * These APIs and the envelope are test-only. They are not suitable for
+ * protecting user backup data or establishing a production key hierarchy.
+ */
+public
+enum TestSnapshotError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+
+
+    case InvalidKey
+    case InvalidNonce
+    case InvalidEnvelope
+    case UnsupportedVersion
+    case AuthenticationFailed
+    case InvalidSnapshot
+
+
+
+
+
+
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+
+}
+
+#if compiler(>=6)
+extension TestSnapshotError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTestSnapshotError: FfiConverterRustBuffer {
+    typealias SwiftType = TestSnapshotError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TestSnapshotError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+
+
+
+        case 1: return .InvalidKey
+        case 2: return .InvalidNonce
+        case 3: return .InvalidEnvelope
+        case 4: return .UnsupportedVersion
+        case 5: return .AuthenticationFailed
+        case 6: return .InvalidSnapshot
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TestSnapshotError, into buf: inout [UInt8]) {
+        switch value {
+
+
+
+
+
+        case .InvalidKey:
+            writeInt(&buf, Int32(1))
+
+
+        case .InvalidNonce:
+            writeInt(&buf, Int32(2))
+
+
+        case .InvalidEnvelope:
+            writeInt(&buf, Int32(3))
+
+
+        case .UnsupportedVersion:
+            writeInt(&buf, Int32(4))
+
+
+        case .AuthenticationFailed:
+            writeInt(&buf, Int32(5))
+
+
+        case .InvalidSnapshot:
+            writeInt(&buf, Int32(6))
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTestSnapshotError_lift(_ buf: RustBuffer) throws -> TestSnapshotError {
+    return try FfiConverterTypeTestSnapshotError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTestSnapshotError_lower(_ value: TestSnapshotError) -> RustBuffer {
+    return FfiConverterTypeTestSnapshotError.lower(value)
 }
 
 
@@ -826,6 +951,39 @@ public func FfiConverterTypeTotpError_lower(_ value: TotpError) -> RustBuffer {
     return FfiConverterTypeTotpError.lower(value)
 }
 /**
+ * Decrypt and validate a temporary v1 test snapshot envelope.
+ *
+ * No plaintext, alternate version, or weaker-format fallback is attempted.
+ * The returned JSON string is owned by the caller and must be handled as
+ * sensitive data in real applications; this spike uses synthetic data only.
+ */
+public func decryptTestSnapshot(key: Data, envelope: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeTestSnapshotError_lift) {
+        uniffiCallStatus in
+    uniffi_authenticator_bridge_fn_func_decrypt_test_snapshot(
+        FfiConverterData.lower(key),
+        FfiConverterData.lower(envelope),uniffiCallStatus
+    )
+})
+}
+/**
+ * Encrypt a test snapshot JSON string into the temporary v1 envelope.
+ *
+ * The caller supplies key and nonce to make cross-platform vectors
+ * reproducible. Use only explicitly public synthetic fixtures here. This is
+ * not a production backup API; nonce uniqueness for real keys is not provided.
+ */
+public func encryptTestSnapshot(key: Data, nonce: Data, snapshotJson: String)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeTestSnapshotError_lift) {
+        uniffiCallStatus in
+    uniffi_authenticator_bridge_fn_func_encrypt_test_snapshot(
+        FfiConverterData.lower(key),
+        FfiConverterData.lower(nonce),
+        FfiConverterString.lower(snapshotJson),uniffiCallStatus
+    )
+})
+}
+/**
  * Generate a TOTP code for the supplied Unix timestamp.
  *
  * The caller controls time; this function never reads a system clock. The
@@ -871,6 +1029,12 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_authenticator_bridge_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_authenticator_bridge_checksum_func_decrypt_test_snapshot() != 14985) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_authenticator_bridge_checksum_func_encrypt_test_snapshot() != 25116) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_authenticator_bridge_checksum_func_generate_totp_code() != 34489) {
         return InitializationResult.apiChecksumMismatch
