@@ -1,6 +1,6 @@
 # Android device-bound key access spike
 
-Status: emulator spike implemented; physical-device evidence remains open.
+Status: emulator spike implemented; physical-device characterization deferred.
 
 This spike checks whether Android Keystore can enforce system authentication at
 the point a synthetic cryptographic operation is performed. It uses a fixed
@@ -53,6 +53,10 @@ Tested 18 November 2026 on the API 37 Android 17 emulator
 (`sdk_gphone16k_arm64`, `emu64a16k`). Both keys reported **software** backing.
 No physical Android device was connected.
 
+Review decision: emulator evidence is accepted for this spike. Results establish
+the software-backed emulator flow only; physical-device hardware backing and
+vendor-specific behavior remain unverified and are not claims of this PR.
+
 | Check | Result |
 | --- | --- |
 | Key generation without a secure screen lock | Rejected by Android Keystore. |
@@ -75,7 +79,8 @@ acceptable; this spike does not choose a production timeout.
 
 Not tested: API 26–36 device behavior, physical-device hardware backing, or
 biometric enrollment changes. PIN change and secure-lock removal were tested
-only on this API 37 emulator; device-specific results may differ. The code
+only on this API 37 emulator; device-specific results may differ. Physical
+device characterization is deferred until hardware is available. The code
 gates combined biometric and device-credential prompts to API 30 and later
 because earlier platform versions do not support that combination. The
 biometric-only mode remains available from the app's current minimum API level,
