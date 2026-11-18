@@ -95,7 +95,7 @@ before the emulator is reused for unrelated work.
 
 ## Evidence
 
-Implementation and test results will be recorded here after the experiment is
-run. Emulator results do not establish physical-device or hardware-backed
-behavior. Hardware claims require a named physical test device and reported
-Keystore security level.
+Implementation and API 37 emulator results are recorded in the Observed results
+section above. The emulator reported software-backed keys. Physical-device and
+hardware-backed behavior remain unverified; emulator results do not establish
+those properties.
