@@ -78,10 +78,18 @@ final class ProtectedKeyExperiment: ObservableObject {
 
         var result: CFTypeRef?
         let lookupStatus = SecItemCopyMatching(query as CFDictionary, &result)
-        guard lookupStatus == errSecSuccess,
-              let result,
-              CFGetTypeID(result) == SecKeyGetTypeID() else {
+        guard lookupStatus != errSecItemNotFound else {
+            UserDefaults.standard.removeObject(forKey: Self.tagDefaultsKey)
+            hasTestKey = false
+            status = "No synthetic key is available."
+            return
+        }
+        guard lookupStatus == errSecSuccess else {
             status = "Authentication did not authorize the synthetic key operation."
+            return
+        }
+        guard let result, CFGetTypeID(result) == SecKeyGetTypeID() else {
+            status = "The protected key reference is invalid."
             return
         }
         // SecItemCopyMatching returns CFTypeRef; verify its concrete type before bridging.
