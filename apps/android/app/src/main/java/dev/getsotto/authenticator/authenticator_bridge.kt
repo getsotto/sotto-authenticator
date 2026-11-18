@@ -674,6 +674,10 @@ internal object IntegrityCheckingUniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_authenticator_bridge_checksum_func_decrypt_test_snapshot(
+    ): Int
+    external fun uniffi_authenticator_bridge_checksum_func_encrypt_test_snapshot(
+    ): Int
     external fun uniffi_authenticator_bridge_checksum_func_generate_totp_code(
     ): Int
     external fun uniffi_authenticator_bridge_checksum_func_platform_message(
@@ -693,6 +697,10 @@ internal object UniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_authenticator_bridge_fn_func_decrypt_test_snapshot(`key`: RustBuffer.ByValue,`envelope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+    external fun uniffi_authenticator_bridge_fn_func_encrypt_test_snapshot(`key`: RustBuffer.ByValue,`nonce`: RustBuffer.ByValue,`snapshotJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
     external fun uniffi_authenticator_bridge_fn_func_generate_totp_code(`secretBase32`: RustBuffer.ByValue,`unixTimeSeconds`: Long,`parameters`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
     external fun uniffi_authenticator_bridge_fn_func_platform_message(uniffi_out_err: UniffiRustCallStatus,
@@ -816,6 +824,12 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if ((lib.uniffi_authenticator_bridge_checksum_func_decrypt_test_snapshot() and 0xFFFF) != 14985) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_authenticator_bridge_checksum_func_encrypt_test_snapshot() and 0xFFFF) != 25116) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_authenticator_bridge_checksum_func_generate_totp_code() and 0xFFFF) != 34489) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1045,6 +1059,25 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
+    }
+}
+
 
 
 /**
@@ -1098,6 +1131,143 @@ public object FfiConverterTypeTotpParameters: FfiConverterRustBuffer<TotpParamet
             FfiConverterUInt.write(value.`periodSeconds`, buf)
             FfiConverterTypeTotpAlgorithm.write(value.`algorithm`, buf)
     }
+}
+
+
+
+
+
+/**
+ * Errors from the temporary encrypted snapshot interoperability spike.
+ *
+ * These APIs and the envelope are test-only. They are not suitable for
+ * protecting user backup data or establishing a production key hierarchy.
+ */
+sealed class TestSnapshotException: kotlin.Exception() {
+
+    class InvalidKey(
+        ) : TestSnapshotException() {
+        override val message
+            get() = ""
+    }
+
+    class InvalidNonce(
+        ) : TestSnapshotException() {
+        override val message
+            get() = ""
+    }
+
+    class InvalidEnvelope(
+        ) : TestSnapshotException() {
+        override val message
+            get() = ""
+    }
+
+    class UnsupportedVersion(
+        ) : TestSnapshotException() {
+        override val message
+            get() = ""
+    }
+
+    class AuthenticationFailed(
+        ) : TestSnapshotException() {
+        override val message
+            get() = ""
+    }
+
+    class InvalidSnapshot(
+        ) : TestSnapshotException() {
+        override val message
+            get() = ""
+    }
+
+
+
+
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<TestSnapshotException> {
+        override fun lift(error_buf: RustBuffer.ByValue): TestSnapshotException = FfiConverterTypeTestSnapshotError.lift(error_buf)
+    }
+
+
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTestSnapshotError : FfiConverterRustBuffer<TestSnapshotException> {
+    override fun read(buf: ByteBuffer): TestSnapshotException {
+
+
+        return when(buf.getInt()) {
+            1 -> TestSnapshotException.InvalidKey()
+            2 -> TestSnapshotException.InvalidNonce()
+            3 -> TestSnapshotException.InvalidEnvelope()
+            4 -> TestSnapshotException.UnsupportedVersion()
+            5 -> TestSnapshotException.AuthenticationFailed()
+            6 -> TestSnapshotException.InvalidSnapshot()
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: TestSnapshotException): ULong {
+        return when(value) {
+            is TestSnapshotException.InvalidKey -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TestSnapshotException.InvalidNonce -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TestSnapshotException.InvalidEnvelope -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TestSnapshotException.UnsupportedVersion -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TestSnapshotException.AuthenticationFailed -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is TestSnapshotException.InvalidSnapshot -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: TestSnapshotException, buf: ByteBuffer) {
+        when(value) {
+            is TestSnapshotException.InvalidKey -> {
+                buf.putInt(1)
+                Unit
+            }
+            is TestSnapshotException.InvalidNonce -> {
+                buf.putInt(2)
+                Unit
+            }
+            is TestSnapshotException.InvalidEnvelope -> {
+                buf.putInt(3)
+                Unit
+            }
+            is TestSnapshotException.UnsupportedVersion -> {
+                buf.putInt(4)
+                Unit
+            }
+            is TestSnapshotException.AuthenticationFailed -> {
+                buf.putInt(5)
+                Unit
+            }
+            is TestSnapshotException.InvalidSnapshot -> {
+                buf.putInt(6)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
 }
 
 
@@ -1282,6 +1452,47 @@ public object FfiConverterTypeTotpError : FfiConverterRustBuffer<TotpException> 
     }
 
 }
+        /**
+         * Decrypt and validate a temporary v1 test snapshot envelope.
+         *
+         * No plaintext, alternate version, or weaker-format fallback is attempted.
+         * The returned JSON string is owned by the caller and must be handled as
+         * sensitive data in real applications; this spike uses synthetic data only.
+         */
+    @Throws(TestSnapshotException::class) fun `decryptTestSnapshot`(`key`: kotlin.ByteArray, `envelope`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(TestSnapshotException) { _status ->
+    UniffiLib.uniffi_authenticator_bridge_fn_func_decrypt_test_snapshot(
+
+
+        FfiConverterByteArray.lower(`key`),
+        FfiConverterByteArray.lower(`envelope`),_status)
+}
+    )
+    }
+
+
+        /**
+         * Encrypt a test snapshot JSON string into the temporary v1 envelope.
+         *
+         * The caller supplies key and nonce to make cross-platform vectors
+         * reproducible. Use only explicitly public synthetic fixtures here. This is
+         * not a production backup API; nonce uniqueness for real keys is not provided.
+         */
+    @Throws(TestSnapshotException::class) fun `encryptTestSnapshot`(`key`: kotlin.ByteArray, `nonce`: kotlin.ByteArray, `snapshotJson`: kotlin.String): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(TestSnapshotException) { _status ->
+    UniffiLib.uniffi_authenticator_bridge_fn_func_encrypt_test_snapshot(
+
+
+        FfiConverterByteArray.lower(`key`),
+        FfiConverterByteArray.lower(`nonce`),
+        FfiConverterString.lower(`snapshotJson`),_status)
+}
+    )
+    }
+
+
         /**
          * Generate a TOTP code for the supplied Unix timestamp.
          *

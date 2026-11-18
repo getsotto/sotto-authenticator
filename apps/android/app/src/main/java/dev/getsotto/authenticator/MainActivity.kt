@@ -1,6 +1,7 @@
 package dev.getsotto.authenticator
 
 import android.os.Bundle
+import android.util.Base64
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.activity.compose.setContent
@@ -8,13 +9,16 @@ import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -108,6 +112,25 @@ class MainActivity : FragmentActivity() {
                             Text("Delete synthetic keys")
                         }
                         Text(status)
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                        Text("Temporary encrypted snapshot interoperability")
+                        Text(
+                            "Uses a public synthetic test key. This does not use or wrap the Android Keystore key and is not a backup format.",
+                        )
+                        OutlinedTextField(
+                            value = snapshotEnvelope,
+                            onValueChange = { snapshotEnvelope = it },
+                            label = { Text("Base64 envelope to paste or transfer") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(onClick = { encryptSnapshotFixture() }) {
+                            Text("Encrypt synthetic snapshot")
+                        }
+                        Button(onClick = { decryptSnapshotEnvelope() }) {
+                            Text("Decrypt pasted envelope")
+                        }
+                        Text(snapshotStatus, modifier = Modifier.padding(top = 8.dp))
                     }
                 }
             }
@@ -116,6 +139,35 @@ class MainActivity : FragmentActivity() {
 
     private val experiment = KeystoreExperiment()
     private var status by mutableStateOf("No synthetic key has been created.")
+    private var snapshotStatus by mutableStateOf("No snapshot operation has run.")
+    private var snapshotEnvelope by mutableStateOf("")
+    private val snapshotTestKey = ByteArray(32) { 0x11 } // gitleaks:allow -- public synthetic interoperability fixture only
+    private val snapshotTestNonce = ByteArray(12) { 0x22 } // gitleaks:allow -- public synthetic interoperability fixture only
+    private val snapshotFixture = """{"formatVersion":1,"project":"synthetic-project","instance":"synthetic-instance","label":"Synthetic test entry"}"""
+
+    private fun encryptSnapshotFixture() {
+        snapshotStatus = try {
+            val envelope = encryptTestSnapshot(snapshotTestKey, snapshotTestNonce, snapshotFixture)
+            snapshotEnvelope = Base64.encodeToString(envelope, Base64.NO_WRAP)
+            "Synthetic snapshot encrypted. Copy this envelope to iOS and decrypt it there."
+        } catch (_: Exception) {
+            "Synthetic snapshot encryption failed."
+        }
+    }
+
+    private fun decryptSnapshotEnvelope() {
+        snapshotStatus = try {
+            val envelope = Base64.decode(snapshotEnvelope, Base64.DEFAULT)
+            val plaintext = decryptTestSnapshot(snapshotTestKey, envelope)
+            if (plaintext == snapshotFixture) {
+                "Cross-platform synthetic snapshot decrypted and matched."
+            } else {
+                "Decrypted snapshot did not match the expected synthetic fixture."
+            }
+        } catch (_: Exception) {
+            "Synthetic snapshot was rejected."
+        }
+    }
 
     private fun createKey(mode: KeyAccessMode): String {
         if (mode == KeyAccessMode.BIOMETRIC_OR_CREDENTIAL &&
