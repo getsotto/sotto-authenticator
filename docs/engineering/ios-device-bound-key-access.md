@@ -50,21 +50,20 @@ The Face ID usage string describes only this disposable signing experiment.
 | Case | Documented behavior or observation |
 | --- | --- |
 | Secure Enclave simulator support | The iPhone 17 Pro simulator built and launched the harness. Key creation failed, and the UI confirmed no fallback key was made. This is a simulator limitation, not evidence of physical-device behavior. |
-| Physical device, iOS 27.2.1 (build 24B156) | On 18 November 2026, the locally signed harness created a synthetic Secure Enclave P-256 key on an iPhone. After Face ID, the app displayed “Protected signing succeeded. Signature output was discarded.” The app was signed with a Personal Team profile for this test; the repository's Xcode project signing configuration was restored afterward. |
+| Physical device, iOS 27.2.1 (build 24B156) | On 18 November 2026, the locally signed harness created synthetic Secure Enclave P-256 keys on an iPhone. Face ID signing and a separate passcode-fallback signing attempt both displayed “Protected signing succeeded. Signature output was discarded.” The app used a Personal Team profile for this test; the repository's Xcode project signing configuration was restored afterward. |
 | Unsuccessful authentication/signing attempt | A second attempt made without successful Face ID returned “The protected signing operation failed.” No signature was produced. The user did not confirm tapping the system prompt's Cancel control, so the explicit cancel-button result remains unverified. |
-| Key cleanup | The user reported that **Delete synthetic key** completed. The app was uninstalled after the first run. It was later reinstalled for the passcode-fallback check; that check is still pending and no key has been recreated. |
-| Passcode fallback | Not yet exercised. The physical run demonstrated Face ID only. |
+| Key cleanup | The user reported that **Delete synthetic key** completed after both physical test runs. The app was uninstalled after the final run. |
+| Passcode fallback | Exercised on the physical device by choosing **Enter Passcode** at the system prompt; protected signing succeeded. |
 | No device passcode | Apple documents that `WhenPasscodeSetThisDeviceOnly` items cannot be created without a passcode. Not exercised on hardware. |
 | Passcode removal or change | Apple documents that removing the passcode deletes items in this accessibility class. Neither removal nor change was performed. |
 | Biometric enrollment change | Not tested. The chosen `userPresence` policy allows passcode fallback; this spike makes no claim that a biometric-set change invalidates the key. |
 | Device lock, app background, process death, relaunch | Not tested with a successfully created Secure Enclave key. The random application tag is retained to support a relaunch check on hardware. |
 | Screen redaction | The harness never displays the key, challenge bytes, or signature. Production screens must replace sensitive views when the scene becomes inactive, before iOS captures an app-switcher snapshot. Screen-capture state should also be observed where supported. |
 
-The physical run demonstrated successful Face ID-gated signing, a non-successful
-signing attempt, and key cleanup. Passcode fallback and the explicit Cancel
-control remain unverified, so the PR stays a draft until passcode fallback is
-exercised. Destructive passcode or biometric-change cases remain untested and
-must not be inferred from simulator results.
+The physical run demonstrated successful Face ID-gated signing, passcode
+fallback, a non-successful signing attempt, and key cleanup. The explicit
+Cancel-button interaction and destructive passcode or biometric-change cases
+remain untested and must not be inferred from simulator results.
 
 ## Reproduce the simulator check
 
