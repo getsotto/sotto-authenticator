@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1810A5B68C4B6B0DBA0ED491 /* ProtectedKeyExperiment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */; };
 		677A94F3C51634140BB2F599 /* authenticator_bridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706CDBDD56D1ECB5D2B048A4 /* authenticator_bridge.swift */; };
 		BBD84968578597F1CBB2725D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE256014C46BCA67C2179AF /* ContentView.swift */; };
 		EE206A4E3D701942096BEFE6 /* AuthenticatorCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B3C6C4A46B6C4E065D5D4444 /* AuthenticatorCore.xcframework */; };
@@ -21,6 +22,7 @@
 		B3C6C4A46B6C4E065D5D4444 /* AuthenticatorCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = AuthenticatorCore.xcframework; path = ../../build/ios/AuthenticatorCore.xcframework; sourceTree = "<group>"; };
 		BFE256014C46BCA67C2179AF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F035DB40393573393743301E /* AuthenticatorSpike.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AuthenticatorSpike.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtectedKeyExperiment.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +59,7 @@
 			children = (
 				8700FBDD94251292D90755DB /* AuthenticatorSpikeApp.swift */,
 				BFE256014C46BCA67C2179AF /* ContentView.swift */,
+				F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */,
 				D830528431D5EB932404BFEB /* Generated */,
 			);
 			path = Authenticator;
@@ -138,6 +141,7 @@
 			files = (
 				EF0CF91D4D238A535AE50F44 /* AuthenticatorSpikeApp.swift in Sources */,
 				BBD84968578597F1CBB2725D /* ContentView.swift in Sources */,
+				1810A5B68C4B6B0DBA0ED491 /* ProtectedKeyExperiment.swift in Sources */,
 				677A94F3C51634140BB2F599 /* authenticator_bridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -157,6 +161,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/Authenticator/Generated";
 				INFOPLIST_KEY_CFBundleDisplayName = "Sotto Authenticator Spike";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to use a disposable synthetic signing key.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -303,6 +308,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/Authenticator/Generated";
 				INFOPLIST_KEY_CFBundleDisplayName = "Sotto Authenticator Spike";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to use a disposable synthetic signing key.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
