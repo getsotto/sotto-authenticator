@@ -1,5 +1,8 @@
+use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use data_encoding::{BASE32, BASE32_NOPAD};
-use hmac::{Hmac, KeyInit, Mac};
+use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
+use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use zeroize::Zeroizing;
@@ -8,6 +11,281 @@ uniffi::setup_scaffolding!();
 
 const MAX_SECRET_BYTES: usize = 128;
 const MAX_BASE32_BYTES: usize = 208;
+const SNAPSHOT_MAGIC: &[u8; 4] = b"SOT1";
+const SNAPSHOT_VERSION: u8 = 1;
+const SNAPSHOT_HEADER_LEN: usize = 6;
+const SNAPSHOT_NONCE_LEN: usize = 12;
+const SNAPSHOT_KEY_LEN: usize = 32;
+const MAX_SNAPSHOT_PLAINTEXT_BYTES: usize = 64 * 1024;
+const MAX_SNAPSHOT_ENVELOPE_BYTES: usize =
+    SNAPSHOT_HEADER_LEN + SNAPSHOT_NONCE_LEN + MAX_SNAPSHOT_PLAINTEXT_BYTES + 16;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TestSnapshot {
+    #[serde(rename = "formatVersion")]
+    format_version: u8,
+    project: String,
+    instance: String,
+    label: String,
+}
+
+/// Errors from the temporary encrypted snapshot interoperability spike.
+///
+/// These APIs and the envelope are test-only. They are not suitable for
+/// protecting user backup data or establishing a production key hierarchy.
+#[derive(Debug, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+pub enum TestSnapshotError {
+    #[error("test key must be exactly 32 bytes")]
+    InvalidKey,
+    #[error("test nonce must be exactly 12 bytes")]
+    InvalidNonce,
+    #[error("snapshot envelope is malformed")]
+    InvalidEnvelope,
+    #[error("snapshot envelope version is unsupported")]
+    UnsupportedVersion,
+    #[error("snapshot authentication failed")]
+    AuthenticationFailed,
+    #[error("snapshot JSON is invalid or exceeds the supported size")]
+    InvalidSnapshot,
+}
+
+/// Encrypt a test snapshot JSON string into the temporary v1 envelope.
+///
+/// The caller supplies key and nonce to make cross-platform vectors
+/// reproducible. Use only explicitly public synthetic fixtures here. This is
+/// not a production backup API; nonce uniqueness for real keys is not provided.
+#[uniffi::export]
+pub fn encrypt_test_snapshot(
+    key: Vec<u8>,
+    nonce: Vec<u8>,
+    snapshot_json: String,
+) -> Result<Vec<u8>, TestSnapshotError> {
+    if key.len() != SNAPSHOT_KEY_LEN {
+        return Err(TestSnapshotError::InvalidKey);
+    }
+    if nonce.len() != SNAPSHOT_NONCE_LEN {
+        return Err(TestSnapshotError::InvalidNonce);
+    }
+    let plaintext = Zeroizing::new(snapshot_json.into_bytes());
+    validate_snapshot(&plaintext)?;
+
+    let header = snapshot_header();
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+    let ciphertext = cipher
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: &plaintext,
+                aad: &header,
+            },
+        )
+        .map_err(|_| TestSnapshotError::InvalidSnapshot)?;
+
+    let mut envelope = Vec::with_capacity(header.len() + nonce.len() + ciphertext.len());
+    envelope.extend_from_slice(&header);
+    envelope.extend_from_slice(&nonce);
+    envelope.extend_from_slice(&ciphertext);
+    Ok(envelope)
+}
+
+/// Decrypt and validate a temporary v1 test snapshot envelope.
+///
+/// No plaintext, alternate version, or weaker-format fallback is attempted.
+/// The returned JSON string is owned by the caller and must be handled as
+/// sensitive data in real applications; this spike uses synthetic data only.
+#[uniffi::export]
+pub fn decrypt_test_snapshot(key: Vec<u8>, envelope: Vec<u8>) -> Result<String, TestSnapshotError> {
+    if key.len() != SNAPSHOT_KEY_LEN {
+        return Err(TestSnapshotError::InvalidKey);
+    }
+    if envelope.len() < SNAPSHOT_HEADER_LEN + SNAPSHOT_NONCE_LEN + 16
+        || envelope.len() > MAX_SNAPSHOT_ENVELOPE_BYTES
+    {
+        return Err(TestSnapshotError::InvalidEnvelope);
+    }
+    if &envelope[..4] != SNAPSHOT_MAGIC {
+        return Err(TestSnapshotError::InvalidEnvelope);
+    }
+    if envelope[4] != SNAPSHOT_VERSION {
+        return Err(TestSnapshotError::UnsupportedVersion);
+    }
+    if envelope[5] != 0 {
+        return Err(TestSnapshotError::InvalidEnvelope);
+    }
+
+    let header = &envelope[..SNAPSHOT_HEADER_LEN];
+    let nonce = &envelope[SNAPSHOT_HEADER_LEN..SNAPSHOT_HEADER_LEN + SNAPSHOT_NONCE_LEN];
+    let ciphertext = &envelope[SNAPSHOT_HEADER_LEN + SNAPSHOT_NONCE_LEN..];
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+    let plaintext = Zeroizing::new(
+        cipher
+            .decrypt(
+                Nonce::from_slice(nonce),
+                Payload {
+                    msg: ciphertext,
+                    aad: header,
+                },
+            )
+            .map_err(|_| TestSnapshotError::AuthenticationFailed)?,
+    );
+    validate_snapshot(&plaintext)?;
+    String::from_utf8(plaintext.to_vec()).map_err(|_| TestSnapshotError::InvalidSnapshot)
+}
+
+fn snapshot_header() -> [u8; SNAPSHOT_HEADER_LEN] {
+    [
+        SNAPSHOT_MAGIC[0],
+        SNAPSHOT_MAGIC[1],
+        SNAPSHOT_MAGIC[2],
+        SNAPSHOT_MAGIC[3],
+        SNAPSHOT_VERSION,
+        0,
+    ]
+}
+
+fn validate_snapshot(plaintext: &[u8]) -> Result<(), TestSnapshotError> {
+    if plaintext.is_empty() || plaintext.len() > MAX_SNAPSHOT_PLAINTEXT_BYTES {
+        return Err(TestSnapshotError::InvalidSnapshot);
+    }
+    let snapshot: TestSnapshot =
+        serde_json::from_slice(plaintext).map_err(|_| TestSnapshotError::InvalidSnapshot)?;
+    if snapshot.format_version != 1
+        || snapshot.project.is_empty()
+        || snapshot.instance.is_empty()
+        || snapshot.label.is_empty()
+    {
+        return Err(TestSnapshotError::InvalidSnapshot);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::{
+        decrypt_test_snapshot, encrypt_test_snapshot, snapshot_header, Aes256Gcm, Key, Nonce,
+        Payload, TestSnapshotError, SNAPSHOT_HEADER_LEN, SNAPSHOT_NONCE_LEN,
+    };
+    use aes_gcm::aead::Aead;
+    use aes_gcm::KeyInit;
+
+    const KEY: [u8; 32] = [0x11; 32];
+    const NONCE: [u8; 12] = [0x22; 12];
+    const FIXTURE: &str = r#"{"formatVersion":1,"project":"synthetic-project","instance":"synthetic-instance","label":"Synthetic test entry"}"#;
+
+    #[test]
+    fn round_trips_synthetic_snapshot() {
+        let envelope = encrypt_test_snapshot(KEY.to_vec(), NONCE.to_vec(), FIXTURE.to_owned())
+            .expect("synthetic snapshot encrypts");
+        assert_eq!(
+            decrypt_test_snapshot(KEY.to_vec(), envelope),
+            Ok(FIXTURE.to_owned())
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_key_and_changed_ciphertext() {
+        let envelope = encrypt_test_snapshot(KEY.to_vec(), NONCE.to_vec(), FIXTURE.to_owned())
+            .expect("synthetic snapshot encrypts");
+        assert_eq!(
+            decrypt_test_snapshot(vec![0x33; 32], envelope.clone()),
+            Err(TestSnapshotError::AuthenticationFailed)
+        );
+
+        let mut changed = envelope;
+        *changed.last_mut().expect("tag exists") ^= 1;
+        assert_eq!(
+            decrypt_test_snapshot(KEY.to_vec(), changed),
+            Err(TestSnapshotError::AuthenticationFailed)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_or_modified_header_and_truncation() {
+        let envelope = encrypt_test_snapshot(KEY.to_vec(), NONCE.to_vec(), FIXTURE.to_owned())
+            .expect("synthetic snapshot encrypts");
+
+        let mut unknown_version = envelope.clone();
+        unknown_version[4] = 2;
+        assert_eq!(
+            decrypt_test_snapshot(KEY.to_vec(), unknown_version),
+            Err(TestSnapshotError::UnsupportedVersion)
+        );
+
+        let mut changed_header = envelope.clone();
+        changed_header[5] = 1;
+        assert_eq!(
+            decrypt_test_snapshot(KEY.to_vec(), changed_header),
+            Err(TestSnapshotError::InvalidEnvelope)
+        );
+
+        for truncated in [
+            Vec::new(),
+            envelope[..SNAPSHOT_HEADER_LEN + SNAPSHOT_NONCE_LEN + 15].to_vec(),
+        ] {
+            assert_eq!(
+                decrypt_test_snapshot(KEY.to_vec(), truncated),
+                Err(TestSnapshotError::InvalidEnvelope)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_keys_nonces_json_and_snapshot_shapes() {
+        assert_eq!(
+            encrypt_test_snapshot(vec![1; 31], NONCE.to_vec(), FIXTURE.to_owned()),
+            Err(TestSnapshotError::InvalidKey)
+        );
+        assert_eq!(
+            encrypt_test_snapshot(KEY.to_vec(), vec![2; 11], FIXTURE.to_owned()),
+            Err(TestSnapshotError::InvalidNonce)
+        );
+        assert_eq!(
+            encrypt_test_snapshot(KEY.to_vec(), NONCE.to_vec(), "not json".to_owned()),
+            Err(TestSnapshotError::InvalidSnapshot)
+        );
+        assert_eq!(
+            encrypt_test_snapshot(
+                KEY.to_vec(),
+                NONCE.to_vec(),
+                FIXTURE.replace("\"formatVersion\":1", "\"formatVersion\":2"),
+            ),
+            Err(TestSnapshotError::InvalidSnapshot)
+        );
+        assert_eq!(
+            decrypt_test_snapshot(vec![1; 31], Vec::new()),
+            Err(TestSnapshotError::InvalidKey)
+        );
+    }
+
+    #[test]
+    fn rejects_authenticated_invalid_json_and_oversized_envelopes() {
+        let header = snapshot_header();
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&KEY));
+        let ciphertext = cipher
+            .encrypt(
+                Nonce::from_slice(&NONCE),
+                Payload {
+                    msg: b"not json",
+                    aad: &header,
+                },
+            )
+            .expect("test cipher encrypts");
+        let mut invalid_json_envelope = header.to_vec();
+        invalid_json_envelope.extend_from_slice(&NONCE);
+        invalid_json_envelope.extend_from_slice(&ciphertext);
+        assert_eq!(
+            decrypt_test_snapshot(KEY.to_vec(), invalid_json_envelope),
+            Err(TestSnapshotError::InvalidSnapshot)
+        );
+
+        assert_eq!(
+            decrypt_test_snapshot(KEY.to_vec(), vec![0; 6 + 12 + 64 * 1024 + 17]),
+            Err(TestSnapshotError::InvalidEnvelope)
+        );
+        assert_eq!(SNAPSHOT_NONCE_LEN, NONCE.len());
+    }
+}
 
 macro_rules! hmac_calculator {
     ($digest:ty, $secret:expr, $counter:expr) => {{
