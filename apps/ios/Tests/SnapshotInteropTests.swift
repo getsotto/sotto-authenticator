@@ -2,7 +2,7 @@ import XCTest
 @testable import SottoAuthenticatorSpike
 
 final class SnapshotInteropTests: XCTestCase {
-    func testDecryptsSharedVectorProducedByAndroidBinding() throws {
+    func testDecryptsSharedGoldenVector() throws {
         let envelope = try XCTUnwrap(Data(base64Encoded: Self.sharedEnvelope))
         XCTAssertEqual(
             try decryptTestSnapshot(key: Self.testKey, envelope: envelope),

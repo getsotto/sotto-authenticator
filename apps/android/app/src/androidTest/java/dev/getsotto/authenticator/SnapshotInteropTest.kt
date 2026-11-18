@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SnapshotInteropTest {
     @Test
-    fun decryptsSharedVectorProducedBySwiftBinding() {
+    fun decryptsSharedGoldenVector() {
         val plaintext = decryptTestSnapshot(TEST_KEY, Base64.decode(SHARED_ENVELOPE, Base64.DEFAULT))
         assertEquals(SNAPSHOT_JSON, plaintext)
     }
@@ -18,7 +18,8 @@ class SnapshotInteropTest {
     @Test
     fun encryptsTheSameVectorAsSwiftBinding() {
         val envelope = encryptTestSnapshot(TEST_KEY, TEST_NONCE, SNAPSHOT_JSON)
-        assertEquals(SHARED_ENVELOPE, Base64.encodeToString(envelope, Base64.NO_WRAP))
+        val envelopeBase64 = Base64.encodeToString(envelope, Base64.NO_WRAP)
+        assertEquals(SHARED_ENVELOPE, envelopeBase64)
     }
 
     @Test

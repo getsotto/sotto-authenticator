@@ -28,6 +28,7 @@ xcodebuild test -project apps/ios/AuthenticatorSpike.xcodeproj \
 ./scripts/build-rust-android.sh
 ./apps/android/gradlew -p apps/android assembleDebug
 ./apps/android/gradlew -p apps/android connectedAndroidTest
+./scripts/smoke-cross-platform-snapshot.sh
 ```
 
 The Android app can be launched on a connected emulator with `adb install -r app/build/outputs/apk/debug/app-debug.apk` followed by `adb shell am start -n dev.getsotto.authenticator/.MainActivity`.

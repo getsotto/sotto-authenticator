@@ -24,8 +24,12 @@ struct SwiftBridgeSmoke {
             }
             let plaintext = try decryptTestSnapshot(key: key, envelope: envelope)
             precondition(plaintext == fixture, "Swift bridge returned a different synthetic snapshot.")
-            print("Swift bridge encrypted and decrypted the synthetic snapshot.")
-            print("ENVELOPE_BASE64=\(envelope.base64EncodedString())")
+            if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--decrypt-base64" {
+                print("Swift bridge decrypted the runtime envelope.")
+            } else {
+                print("Swift bridge encrypted and decrypted the synthetic snapshot.")
+                print("ENVELOPE_BASE64=\(envelope.base64EncodedString())")
+            }
         } catch {
             fatalError("Swift bridge snapshot operation failed.")
         }

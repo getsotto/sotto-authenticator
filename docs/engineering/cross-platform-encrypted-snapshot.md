@@ -64,16 +64,21 @@ Executed 18 November 2026:
 | Environment | Check | Result |
 | --- | --- | --- |
 | Rust host | `cargo test -p authenticator-bridge` | 12 passed, including invalid keys, invalid JSON, wrong key, modified header/ciphertext, truncation, unsupported version, and size bounds |
-| iOS Simulator | iPhone 17 Pro, iOS 26.3.1, `xcodebuild test` | 3 passed: decrypt Android's shared vector, produce matching vector, reject modified ciphertext/version |
-| Android Emulator | API 37 / Android 17, `connectedAndroidTest` | 3 passed: decrypt Swift's shared vector, produce matching vector, reject modified ciphertext/version |
+| iOS Simulator | iPhone 17 Pro, iOS 26.3.1, `xcodebuild test` | 3 passed: decrypt shared golden vector, produce matching vector, reject modified ciphertext/version |
+| Android Emulator | API 37 / Android 17, `connectedAndroidTest` | 3 passed: decrypt shared golden vector, produce matching vector, reject modified ciphertext/version |
 | macOS Swift bridge smoke | Generated Swift binding with the host Rust library | Encrypted/decrypted the fixture and matched the shared vector |
+| Runtime producer/consumer exchange | `scripts/smoke-cross-platform-snapshot.sh` with Android API 37 emulator | Passed in both directions: Swift-generated output was decrypted by the Android app; Android-app output was decrypted by the Swift binding |
 
-Both native binding test suites use the same public deterministic fixture. The
-Android suite decrypts the ciphertext produced by the Swift suite; both suites
-also assert that encryption produces the exact same envelope. This proves
-serialization and envelope interoperability through the generated bindings.
-It does not establish protected key exchange between real devices. No physical
-Android device was available for this spike.
+The XCTest and Android instrumentation suites use the same public deterministic
+golden vector. The separate runtime exchange script goes further: it captures
+an envelope emitted by the Swift binding, supplies it to the Android app, and
+checks the app's decrypted status. It then captures an envelope emitted by the
+Android app and passes it to the Swift binding for decryption. The Swift
+producer/consumer runs on the macOS host with the generated Swift binding and
+host Rust library; the Android producer/consumer runs in the API 37 emulator.
+This demonstrates runtime envelope exchange through both generated bindings,
+not protected key exchange between real devices. No physical Android device
+was available for this spike.
 
 ### Negative cases exercised
 
