@@ -28,6 +28,7 @@ android {
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.compose.material3:material3")
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 }
