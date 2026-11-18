@@ -1,6 +1,6 @@
 # Android device-bound key access spike
 
-Status: implementation in progress.
+Status: emulator spike implemented; physical-device evidence remains open.
 
 This spike checks whether Android Keystore can enforce system authentication at
 the point a synthetic cryptographic operation is performed. It uses a fixed
@@ -35,7 +35,47 @@ Android does not support every prompt authenticator combination on every API
 level. A `CryptoObject` flow is restricted to strong biometrics, while
 device-credential combinations have separate API-level support limits. The
 spike therefore records the exact flow and API level for each result instead
-of describing all Android unlock paths as equivalent.
+of describing all Android unlock paths as equivalent. See the official
+[BiometricPrompt guide](https://developer.android.com/identity/sign-in/biometric-auth),
+[BiometricPrompt API reference](https://developer.android.com/reference/androidx/biometric/BiometricPrompt.PromptInfo.Builder),
+and [Keystore key authorization reference](https://developer.android.com/reference/android/security/keystore/KeyGenParameterSpec.Builder).
+
+The harness compares two policies. The biometric-only key requires per-use
+strong biometric authorization and signs through a `CryptoObject`. The
+biometric-or-device-credential key has a five-second Keystore authorization
+window; the prompt has no `CryptoObject`, so the app initializes and uses the
+signature only after the system prompt succeeds. A no-prompt probe attempts the
+actual Keystore operation directly, without checking app UI state.
+
+## Observed results
+
+Tested 18 November 2026 on the API 37 Android 17 emulator
+(`sdk_gphone16k_arm64`, `emu64a16k`). Both keys reported **software** backing.
+No physical Android device was connected.
+
+| Check | Result |
+| --- | --- |
+| Key generation without a secure screen lock | Rejected by Android Keystore. |
+| Key creation with emulator PIN and enrolled virtual fingerprint | Both policies created keys. |
+| Strong biometric plus `CryptoObject` signing | Succeeded; the signature was discarded. |
+| Strong biometric with the five-second fallback policy | Succeeded; the signature was discarded. |
+| Device PIN fallback with the five-second policy | Succeeded; the signature was discarded. |
+| Fallback key operation without a prompt, before authentication | Keystore rejected it as unauthenticated. |
+| Fallback key operation without a prompt after the authorization window elapsed | Keystore rejected it as unauthenticated. |
+| Process force-stop and relaunch | The alias remained; a no-prompt operation was still rejected. |
+
+The five-second policy makes credential fallback available while retaining a
+Keystore-enforced authorization boundary, but it allows repeated key use
+during that short window. That differs from the per-operation biometric key.
+Product policy must decide whether this usability/security tradeoff is
+acceptable; this spike does not choose a production timeout.
+
+Not tested: API 26–36 device behavior, physical-device hardware backing,
+background/foreground transitions, biometric enrollment changes, screen-lock
+removal or reset, or credential change. The code gates combined biometric and
+device-credential prompts to API 30 and later because earlier platform versions
+do not support that combination. The biometric-only mode remains available
+from the app's current minimum API level, 26.
 
 ## Cleanup
 
