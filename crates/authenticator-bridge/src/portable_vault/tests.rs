@@ -151,10 +151,38 @@ fn validates_authenticated_json_before_returning_a_vault() {
 }
 
 #[test]
+fn accepts_json_whitespace_and_checks_the_provisional_metadata_rules() {
+    let entropy = node_entropy();
+    let vault_id = "abcdef0123456789abcdef0123456789";
+    let json = EMPTY_VAULT.replace(&"0".repeat(32), vault_id);
+    let mut padded = format!(" \t\r\n{json}\n").into_bytes();
+    let envelope = seal(&mut padded, &entropy, ExportRandomness::generate().unwrap()).unwrap();
+    let vault = open(&envelope, &entropy).unwrap();
+    assert_eq!(vault.vault_id, vault_id);
+    assert_eq!(vault.export_counter, 1);
+    assert_eq!(vault.issued_at, 0);
+
+    for mut payload in [
+        json.replace(vault_id, &vault_id.to_ascii_uppercase())
+            .into_bytes(),
+        format!("\u{feff}{json}").into_bytes(),
+    ] {
+        let envelope = seal(
+            &mut payload,
+            &entropy,
+            ExportRandomness::generate().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            open(&envelope, &entropy).err(),
+            Some(ExportError::InvalidPayload)
+        );
+    }
+}
+
+#[test]
 fn rejects_an_authenticated_array_of_positional_fields() {
-    // Match the object fixture's size so this case reaches JSON validation.
     let mut payload = br#"[1,"00000000000000000000000000000000",1,0,[]]"#.to_vec();
-    payload.resize(EMPTY_VAULT.len(), b' ');
     let entropy = node_entropy();
     let envelope = seal(
         &mut payload,
