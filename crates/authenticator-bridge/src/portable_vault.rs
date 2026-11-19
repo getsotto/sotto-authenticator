@@ -19,7 +19,6 @@ const WRAPPED_KEY_END: usize = WRAP_NONCE_END + KEY_BYTES;
 const WRAP_END: usize = WRAPPED_KEY_END + TAG_BYTES;
 const PAYLOAD_START: usize = WRAP_END + NONCE_BYTES;
 const OVERHEAD: usize = PAYLOAD_START + TAG_BYTES;
-const MIN_PAYLOAD_BYTES: usize = 109;
 const MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_JSON_INTEGER: u64 = (1 << 53) - 1;
 
@@ -105,7 +104,7 @@ fn seal(
     entropy: &SecretKey,
     randomness: ExportRandomness,
 ) -> Result<Vec<u8>, ExportError> {
-    if !(MIN_PAYLOAD_BYTES..=MAX_PAYLOAD_BYTES).contains(&payload.len()) {
+    if payload.len() > MAX_PAYLOAD_BYTES {
         return Err(ExportError::InvalidSize);
     }
 
@@ -140,7 +139,9 @@ fn seal(
 }
 
 fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportError> {
-    if !(OVERHEAD + MIN_PAYLOAD_BYTES..=OVERHEAD + MAX_PAYLOAD_BYTES).contains(&envelope.len()) {
+    // Only the fixed fields and tags determine the minimum. The authenticated
+    // JSON schema determines which plaintext lengths can actually be valid.
+    if !(OVERHEAD..=OVERHEAD + MAX_PAYLOAD_BYTES).contains(&envelope.len()) {
         return Err(ExportError::InvalidSize);
     }
     if envelope[..4] != HEADER[..4] || envelope[6..8] != HEADER[6..8] {

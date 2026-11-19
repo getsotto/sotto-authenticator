@@ -85,9 +85,14 @@ fn rejects_incomplete_unsupported_and_altered_envelopes() {
     let entropy = node_entropy();
     let envelope = HEXLOWER.decode(NODE_ENVELOPE.as_bytes()).unwrap();
     for end in 0..envelope.len() {
+        let error = if end < OVERHEAD {
+            ExportError::InvalidSize
+        } else {
+            ExportError::AuthenticationFailed
+        };
         assert_eq!(
             open(&envelope[..end], &entropy).err(),
-            Some(ExportError::InvalidSize),
+            Some(error),
             "truncated to {end} bytes"
         );
     }
@@ -161,6 +166,24 @@ fn rejects_an_authenticated_array_of_positional_fields() {
         open(&envelope, &entropy).err(),
         Some(ExportError::InvalidPayload)
     );
+}
+
+#[test]
+fn validates_short_authenticated_payloads_at_the_json_boundary() {
+    let entropy = node_entropy();
+    for mut payload in [Vec::new(), b"{}".to_vec()] {
+        let envelope = seal(
+            &mut payload,
+            &entropy,
+            ExportRandomness::generate().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(envelope.len(), OVERHEAD + payload.len());
+        assert_eq!(
+            open(&envelope, &entropy).err(),
+            Some(ExportError::InvalidPayload)
+        );
+    }
 }
 
 #[test]
