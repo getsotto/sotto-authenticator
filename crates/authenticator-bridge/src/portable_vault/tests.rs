@@ -23,7 +23,7 @@ fn a_reentered_recovery_phrase_opens_a_synthetic_export() {
     let vault: SyntheticVault = serde_json::from_str(EMPTY_VAULT).unwrap();
     let (envelope, written_words) = {
         let phrase = RecoveryPhrase::generate().unwrap();
-        let envelope = export(&vault, &phrase.entropy()).unwrap();
+        let envelope = export(&vault, &phrase.entropy().unwrap()).unwrap();
         // Keep this simulated copy of the phrase within the test.
         let mut written_words = Zeroizing::new(String::with_capacity(24 * 9));
         for (index, word) in phrase.words().enumerate() {
@@ -35,11 +35,11 @@ fn a_reentered_recovery_phrase_opens_a_synthetic_export() {
         (envelope, written_words)
     };
     let restored_phrase = RecoveryPhrase::parse(&written_words).unwrap();
-    assert!(open(&envelope, &restored_phrase.entropy()).unwrap() == vault);
+    assert!(open(&envelope, &restored_phrase.entropy().unwrap()).unwrap() == vault);
 
     let wrong_phrase = RecoveryPhrase::generate().unwrap();
     assert_eq!(
-        open(&envelope, &wrong_phrase.entropy()).err(),
+        open(&envelope, &wrong_phrase.entropy().unwrap()).err(),
         Some(ExportError::AuthenticationFailed)
     );
 }

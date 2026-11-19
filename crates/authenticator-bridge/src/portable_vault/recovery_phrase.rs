@@ -51,15 +51,17 @@ impl RecoveryPhrase {
         self.0.words()
     }
 
-    pub(super) fn entropy(&self) -> SecretKey {
+    pub(super) fn entropy(&self) -> Result<SecretKey, RecoveryPhraseError> {
         // The vault KDF consumes the encoded entropy, excluding the checksum.
         // BIP-39's separate wallet seed derivation is outside this path.
         let (bytes, len) = self.0.to_entropy_array();
         let bytes = Zeroizing::new(bytes);
-        debug_assert_eq!(len, KEY_BYTES);
+        if len != KEY_BYTES {
+            return Err(RecoveryPhraseError::InvalidPhrase);
+        }
         let mut entropy = Zeroizing::new([0; KEY_BYTES]);
         entropy.copy_from_slice(&bytes[..KEY_BYTES]);
-        entropy
+        Ok(entropy)
     }
 }
 
@@ -79,7 +81,7 @@ mod tests {
         let expected = zero_entropy_phrase();
         assert!(phrase.words().eq(expected.split(' ')));
         let parsed = RecoveryPhrase::parse(&expected).unwrap();
-        assert_eq!(&parsed.entropy()[..], &entropy[..]);
+        assert_eq!(&parsed.entropy().unwrap()[..], &entropy[..]);
     }
 
     #[test]
@@ -88,7 +90,17 @@ mod tests {
         let second = RecoveryPhrase::generate().unwrap();
         assert_eq!(first.words().count(), WORD_COUNT);
         assert_eq!(second.words().count(), WORD_COUNT);
-        assert!(first.entropy() != second.entropy());
+        assert!(first.entropy().unwrap() != second.entropy().unwrap());
+    }
+
+    #[test]
+    fn rejects_unexpected_entropy_length_before_returning_key_material() {
+        // Deliberately bypass the parser's word-count invariant.
+        let phrase = RecoveryPhrase(Mnemonic::from_entropy(&[0; 16]).unwrap());
+        assert_eq!(
+            phrase.entropy().err(),
+            Some(RecoveryPhraseError::InvalidPhrase)
+        );
     }
 
     #[test]
