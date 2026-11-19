@@ -20,3 +20,6 @@ sha2 = "0.11"
 thiserror = "2"
 uniffi = "0.32.2"
 zeroize = "1"
+
+[dev-dependencies]
+bip39 = { version = "3.0.0", default-features = false, features = ["zeroize"] }
