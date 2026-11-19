@@ -1,6 +1,6 @@
 # ADR 0004: recovery factor and portable vault journey
 
-- Status: proposed; product and maintainer decision required
+- Status: accepted
 - Date: 2026-11-19
 - Depends on: [ADR 0003: local vault key hierarchy and portable recovery](0003-local-vault-key-hierarchy.md)
 - Evidence: [native vault-key protection findings](../engineering/native-vault-key-protection.md)
