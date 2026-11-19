@@ -385,9 +385,11 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun deleteVaultKey() {
-        vaultStatus = if (vaultExperiment.deleteKeys()) {
-            vaultHasKey = false
-            vaultEnvelopePresent = false
+        val deleted = vaultExperiment.deleteKeys()
+        vaultHasKey = vaultExperiment.hasKey(vaultMode)
+        vaultHasAnyKey = vaultExperiment.hasAnyKey()
+        vaultEnvelopePresent = false
+        vaultStatus = if (deleted) {
             "Synthetic AES keys deleted; in-memory fixture discarded."
         } else {
             "No synthetic AES keys were present."
