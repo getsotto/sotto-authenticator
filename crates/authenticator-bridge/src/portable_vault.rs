@@ -176,6 +176,15 @@ fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportEr
         )
         .map_err(|_| ExportError::AuthenticationFailed)?;
 
+    // Serde also accepts positional arrays for structs. The vault schema
+    // requires named fields so it can evolve independently of the envelope.
+    let first_token = payload
+        .iter()
+        .copied()
+        .find(|byte| !matches!(byte, b' ' | b'\t' | b'\r' | b'\n'));
+    if first_token != Some(b'{') {
+        return Err(ExportError::InvalidPayload);
+    }
     let vault: SyntheticVault =
         serde_json::from_slice(&payload).map_err(|_| ExportError::InvalidPayload)?;
     vault.validate()?;

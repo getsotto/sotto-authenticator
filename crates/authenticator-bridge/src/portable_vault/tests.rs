@@ -146,6 +146,24 @@ fn validates_authenticated_json_before_returning_a_vault() {
 }
 
 #[test]
+fn rejects_an_authenticated_array_of_positional_fields() {
+    // Match the object fixture's size so this case reaches JSON validation.
+    let mut payload = br#"[1,"00000000000000000000000000000000",1,0,[]]"#.to_vec();
+    payload.resize(EMPTY_VAULT.len(), b' ');
+    let entropy = node_entropy();
+    let envelope = seal(
+        &mut payload,
+        &entropy,
+        ExportRandomness::generate().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        open(&envelope, &entropy).err(),
+        Some(ExportError::InvalidPayload)
+    );
+}
+
+#[test]
 fn bounds_the_payload_at_one_mebibyte() {
     let entropy = node_entropy();
     let mut bytes = EMPTY_VAULT.as_bytes().to_vec();
