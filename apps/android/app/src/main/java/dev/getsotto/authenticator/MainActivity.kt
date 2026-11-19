@@ -245,7 +245,7 @@ class MainActivity : FragmentActivity() {
             }
         } catch (_: Exception) {
             vaultHasKey = false
-            vaultHasAnyKey = false
+            vaultHasAnyKey = vaultExperiment.hasAnyKey()
             vaultEnvelopePresent = false
             "Synthetic AES key creation failed. Set a secure device lock and required biometric enrollment."
         }
