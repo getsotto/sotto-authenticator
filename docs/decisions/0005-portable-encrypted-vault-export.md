@@ -19,8 +19,9 @@ production backup format. This proposal does not promote that test API.
 
 - Represent the generated 256-bit recovery secret as a 24-word English BIP-39
   mnemonic. Use the mnemonic's encoded entropy bytes as the secret input and
-  the mnemonic checksum to detect transcription errors. Do not apply BIP-39's
-  wallet seed derivation to this application key hierarchy.
+  the mnemonic checksum to detect transcription errors. Require full
+  lowercase words and warn users to enter the phrase only in Sotto
+  Authenticator and never in a cryptocurrency wallet.
 - Generate a fresh 256-bit data encryption key for each export. Derive a
   separate wrapping key using HKDF-SHA-256. Extract uses the fresh random salt
   and the generated recovery entropy. Expand uses a context assigned to
@@ -38,15 +39,20 @@ production backup format. This proposal does not promote that test API.
   Version the payload schema independently of the envelope. Keep all vault
   records and metadata encrypted. Leave the envelope unpadded for the first
   format, which exposes the format identifier and encoded vault size.
-- Treat an invalid mnemonic checksum, wrong recovery secret, or failed AEAD
-  authentication as import failure. Authenticate and validate the entire
-  export before preview or replacement.
+- Prompt users to check the phrase when its syntax or checksum fails. Use one
+  open failure result for a syntactically valid wrong phrase and either
+  authentication failure. Authenticate and validate the entire export before
+  preview or replacement.
 - Include a vault identifier, export counter and issue date in the encrypted
   payload. Show the date and counter at preview. Require explicit confirmation
   before replacing a vault and warn if the counter is at or below the
   highest previously observed counter for that vault. Store the replacement
   and counter together. A fresh device has no local history for comparison,
   and disconnected devices can produce divergent export histories.
+- Keep core secret buffers under Rust ownership with clearing on drop. Limit
+  what crosses the native bridge to the inputs and preview fields each screen
+  needs. Treat clearing in native UI, library and operating system copies as
+  best effort.
 
 The byte layout, payload schema, parser bounds and client integration remain
 subject to review before the format is final.
@@ -75,6 +81,8 @@ Independent cryptographic and platform reviewers should assess:
 2. The payload schema, parser bounds and failure behaviour on supported clients.
 3. The local counter lifecycle across restore, concurrent exports, and
    divergent export histories.
+4. Recovery phrase display and entry, memory ownership across the native
+   bridge and exclusion of deterministic inputs from release builds.
 
 Do not implement this candidate as production export or accept real
 credentials until the review is resolved, the normative format is published,
@@ -82,6 +90,6 @@ and cross-implementation vectors pass.
 
 ## References
 
-- [BIP-39: Mnemonic code for generating deterministic keys](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) describes computer-generated entropy encoding and a mnemonic checksum. Sotto proposes to use the entropy encoding only, not the BIP-39 seed derivation.
+- [BIP-39: Mnemonic code for generating deterministic keys](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) describes the computer-generated entropy encoding and mnemonic checksum used here. The decoded entropy feeds HKDF directly.
 - [RFC 5869: HKDF](https://www.rfc-editor.org/rfc/rfc5869.html) defines HMAC-based extract-and-expand key derivation and its context input.
 - [RFC 5116: Authenticated Encryption](https://www.rfc-editor.org/rfc/rfc5116.html) defines the AEAD interface and nonce uniqueness requirement.
