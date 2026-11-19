@@ -34,10 +34,19 @@ production backup format. This proposal does not promote that test API.
   pair. Reject unknown pairs without fallback. Generate the recovery entropy,
   salt, data key and nonces internally using the operating system's secure
   random source. Restrict fixed inputs to synthetic fixtures.
+- Use strict UTF-8 JSON with duplicate member rejection and schema validation.
+  Version the payload schema independently of the envelope. Keep all vault
+  records and metadata encrypted. Leave the envelope unpadded for the first
+  format, which exposes the format identifier and encoded vault size.
 - Treat an invalid mnemonic checksum, wrong recovery secret, or failed AEAD
-  authentication as import failure. Do not return partial plaintext or mutate
-  the active vault before the entire export has been authenticated and
-  validated.
+  authentication as import failure. Authenticate and validate the entire
+  export before preview or replacement.
+- Include a vault identifier, export counter and issue date in the encrypted
+  payload. Show the date and counter at preview. Require explicit confirmation
+  before replacing a vault and warn if the counter is at or below the
+  highest previously observed counter for that vault. Store the replacement
+  and counter together. A fresh device has no local history for comparison,
+  and disconnected devices can produce divergent export histories.
 
 The byte layout, payload schema, parser bounds and client integration remain
 subject to review before the format is final.
@@ -64,6 +73,8 @@ Independent cryptographic and platform reviewers should assess:
 1. The authenticated fields and the key and nonce lifecycle for both
    encryption operations, including after a failed export.
 2. The payload schema, parser bounds and failure behaviour on supported clients.
+3. The local counter lifecycle across restore, concurrent exports, and
+   divergent export histories.
 
 Do not implement this candidate as production export or accept real
 credentials until the review is resolved, the normative format is published,
