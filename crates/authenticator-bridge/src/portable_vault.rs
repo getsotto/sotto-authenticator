@@ -226,3 +226,5 @@ fn exports_same_synthetic_vault_with_fresh_randomness() {
         assert!(restored == vault);
     }
 }
+
+mod tests;
