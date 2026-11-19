@@ -12,8 +12,8 @@ pub(super) enum RecoveryPhraseError {
     RandomnessUnavailable,
 }
 
-// Keep the phrase as word indices in a zeroise-on-drop Mnemonic. Avoid
-// exposing Debug, Clone or an owned string representation of the phrase.
+// bip39's zeroize feature clears the Mnemonic's retained word indices on drop.
+// The wrapper owns that field and keeps the borrowed entry text out of it.
 pub(super) struct RecoveryPhrase(Mnemonic);
 
 impl RecoveryPhrase {
@@ -68,10 +68,24 @@ impl RecoveryPhrase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::{Zeroize, ZeroizeOnDrop};
 
     fn zero_entropy_phrase() -> String {
         // Public 256-bit zero entropy vector from Trezor's BIP-39 fixtures.
         format!("{}art", "abandon ".repeat(23))
+    }
+
+    #[test]
+    fn mnemonic_dependency_clears_retained_word_indices() {
+        fn requires_zeroise_on_drop<T: ZeroizeOnDrop>(_: &T) {}
+
+        let mut mnemonic = Mnemonic::from_entropy(&[0xff; KEY_BYTES]).unwrap();
+        requires_zeroise_on_drop(&mnemonic);
+        assert!(mnemonic.word_indices().any(|index| index != 0));
+
+        // Check the same stored field the dependency's derived Drop clears.
+        mnemonic.zeroize();
+        assert!(mnemonic.word_indices().eq([0; WORD_COUNT]));
     }
 
     #[test]
