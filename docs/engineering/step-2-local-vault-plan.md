@@ -32,7 +32,7 @@ credential storage.
 
 ### Step 2 PR 01: key hierarchy and recovery direction
 
-**This PR, expected public PR 13.** Propose separate paths for local device
+**This PR.** Propose separate paths for local device
 unlock and user-controlled portable recovery. Compare device-only keys,
 passphrase-derived vault keys, a random vault key with separate local and
 portable protection, and hosted recovery. Record the product questions that
