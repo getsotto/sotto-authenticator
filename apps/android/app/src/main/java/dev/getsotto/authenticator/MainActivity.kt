@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import java.security.Signature
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 
 class MainActivity : FragmentActivity() {
@@ -315,9 +316,11 @@ class MainActivity : FragmentActivity() {
                 vaultStatus = try {
                     val operationCipher = authorizedCipher ?: vaultExperiment.beginDecrypt(requestedMode)
                     vaultExperiment.decryptFixture(operationCipher, tampered)
-                } catch (_: Exception) {
+                } catch (_: AEADBadTagException) {
                     if (tampered) "Modified synthetic fixture rejected by AES-GCM authentication."
                     else "Synthetic decryption failed or authentication was unavailable."
+                } catch (_: Exception) {
+                    "Synthetic decryption failed or authentication was unavailable."
                 }
             },
             onFailure = { vaultStatus = "System authentication did not authorize decryption." },
