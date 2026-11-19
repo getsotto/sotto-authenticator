@@ -9,6 +9,9 @@ use zeroize::Zeroizing;
 
 uniffi::setup_scaffolding!();
 
+#[cfg(test)]
+mod portable_vault;
+
 const MAX_SECRET_BYTES: usize = 128;
 const MAX_BASE32_BYTES: usize = 208;
 const SNAPSHOT_MAGIC: &[u8; 4] = b"SOT1";
