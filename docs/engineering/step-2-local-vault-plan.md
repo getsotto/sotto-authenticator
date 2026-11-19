@@ -43,11 +43,13 @@ changes. No implementation or real data is introduced.
 
 ### Step 2 PR 02: recovery factor and user journey
 
-Decide how the user creates, confirms, stores, uses, replaces, and loses
-portable recovery material. Compare a generated high-entropy secret with a
-user-chosen passphrase. Define recovery failure messages and whether the first
-export is an explicit user-managed file. Do not select KDF parameters here
-unless the cryptographic design is reviewed with them.
+Use the [recovery factor and user journey specification](step-2-pr-02-recovery-factor-spec.md)
+and [PR 02 plan](step-2-pr-02-recovery-factor-plan.md) to resolve how the user
+creates, confirms, stores, uses, replaces, and loses portable recovery material.
+Compare a generated high-entropy secret with a user-chosen passphrase. Define
+recovery failure messages and whether the first export is an explicit
+user-managed file. Do not select KDF parameters here unless the cryptographic
+design is reviewed with them.
 
 **Exit criteria:** the recovery factor and its user-visible consequences are
 approved; loss and replacement cases have acceptance criteria.
