@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import java.security.Signature
+import javax.crypto.Cipher
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -154,35 +155,41 @@ class MainActivity : FragmentActivity() {
                             "Uses one synthetic AES key and fixture. The encrypted fixture stays in memory and is discarded on process restart.",
                         )
                         Text(vaultStatus, modifier = Modifier.padding(top = 8.dp))
-                        Button(onClick = { useVaultMode(VaultKeyMode.BIOMETRIC_PER_OPERATION) }) {
+                        Button(
+                            onClick = { useVaultMode(VaultKeyMode.BIOMETRIC_PER_OPERATION) },
+                            enabled = !vaultAuthenticationPending,
+                        ) {
                             Text("Use per-operation biometric policy")
                         }
-                        Button(onClick = { useVaultMode(VaultKeyMode.BIOMETRIC_OR_CREDENTIAL) }) {
+                        Button(
+                            onClick = { useVaultMode(VaultKeyMode.BIOMETRIC_OR_CREDENTIAL) },
+                            enabled = !vaultAuthenticationPending,
+                        ) {
                             Text("Use biometric or device-credential policy")
                         }
                         Text("Selected policy: ${vaultMode.name}")
-                        Button(onClick = { createVaultKey() }) {
+                        Button(onClick = { createVaultKey() }, enabled = !vaultAuthenticationPending) {
                             Text("Create synthetic AES key")
                         }
-                        Button(onClick = { encryptVaultFixture() }, enabled = vaultHasKey) {
+                        Button(onClick = { encryptVaultFixture() }, enabled = vaultHasKey && !vaultAuthenticationPending) {
                             Text("Authenticate and encrypt fixture")
                         }
-                        Button(onClick = { probeVaultEncryptionWithoutPrompt() }, enabled = vaultHasKey) {
+                        Button(onClick = { probeVaultEncryptionWithoutPrompt() }, enabled = vaultHasKey && !vaultAuthenticationPending) {
                             Text("Probe encryption without a prompt")
                         }
                         Button(
                             onClick = { authenticateThenProbeVaultWindow() },
-                            enabled = vaultHasKey && vaultMode == VaultKeyMode.BIOMETRIC_OR_CREDENTIAL,
+                            enabled = vaultHasKey && vaultMode == VaultKeyMode.BIOMETRIC_OR_CREDENTIAL && !vaultAuthenticationPending,
                         ) {
                             Text("Authenticate, then probe the five-second window")
                         }
-                        Button(onClick = { decryptVaultFixture() }, enabled = vaultHasKey && vaultEnvelopePresent) {
+                        Button(onClick = { decryptVaultFixture() }, enabled = vaultHasKey && vaultEnvelopePresent && !vaultAuthenticationPending) {
                             Text("Authenticate and decrypt fixture")
                         }
-                        Button(onClick = { decryptVaultFixture(tampered = true) }, enabled = vaultHasKey && vaultEnvelopePresent) {
+                        Button(onClick = { decryptVaultFixture(tampered = true) }, enabled = vaultHasKey && vaultEnvelopePresent && !vaultAuthenticationPending) {
                             Text("Authenticate and reject modified fixture")
                         }
-                        Button(onClick = { deleteVaultKey() }, enabled = vaultHasAnyKey) {
+                        Button(onClick = { deleteVaultKey() }, enabled = vaultHasAnyKey && !vaultAuthenticationPending) {
                             Text("Delete synthetic AES key")
                         }
                     }
@@ -200,6 +207,7 @@ class MainActivity : FragmentActivity() {
     private var vaultHasKey by mutableStateOf(vaultExperiment.hasKey(VaultKeyMode.BIOMETRIC_PER_OPERATION))
     private var vaultHasAnyKey by mutableStateOf(vaultExperiment.hasAnyKey())
     private var vaultEnvelopePresent by mutableStateOf(false)
+    private var vaultAuthenticationPending by mutableStateOf(false)
     private var vaultStatus by mutableStateOf("No synthetic vault operation has run.")
     private val snapshotTestKey = ByteArray(32) { 0x11 } // gitleaks:allow -- public synthetic interoperability fixture only
     private val snapshotTestNonce = ByteArray(12) { 0x22 } // gitleaks:allow -- public synthetic interoperability fixture only
@@ -252,13 +260,14 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun encryptVaultFixture() {
+        val requestedMode = vaultMode
         if (!vaultHasKey) {
             vaultStatus = "Create the synthetic AES key first."
             return
         }
-        val cipher = if (vaultMode == VaultKeyMode.BIOMETRIC_PER_OPERATION) {
+        val cipher = if (requestedMode == VaultKeyMode.BIOMETRIC_PER_OPERATION) {
             try {
-                vaultExperiment.beginEncrypt(vaultMode)
+                vaultExperiment.beginEncrypt(requestedMode)
             } catch (_: Exception) {
                 vaultStatus = "Synthetic AES key is unavailable or invalidated."
                 return
@@ -267,13 +276,12 @@ class MainActivity : FragmentActivity() {
             null
         }
         vaultStatus = "Waiting for system authentication."
-        authenticateVaultOperation(
-            activity = this,
-            mode = vaultMode,
+        authenticateVaultOperationSafely(
+            mode = requestedMode,
             cipher = cipher,
             onAuthorized = { authorizedCipher ->
                 vaultStatus = try {
-                    val operationCipher = authorizedCipher ?: vaultExperiment.beginEncrypt(vaultMode)
+                    val operationCipher = authorizedCipher ?: vaultExperiment.beginEncrypt(requestedMode)
                     vaultExperiment.saveEncryptedFixture(operationCipher).also { vaultEnvelopePresent = true }
                 } catch (_: Exception) {
                     "Synthetic encryption failed or authentication was unavailable."
@@ -284,13 +292,14 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun decryptVaultFixture(tampered: Boolean = false) {
+        val requestedMode = vaultMode
         if (!vaultHasKey || !vaultEnvelopePresent) {
             vaultStatus = "Create a key and encrypt the synthetic fixture first."
             return
         }
-        val cipher = if (vaultMode == VaultKeyMode.BIOMETRIC_PER_OPERATION) {
+        val cipher = if (requestedMode == VaultKeyMode.BIOMETRIC_PER_OPERATION) {
             try {
-                vaultExperiment.beginDecrypt(vaultMode)
+                vaultExperiment.beginDecrypt(requestedMode)
             } catch (_: Exception) {
                 vaultStatus = "Synthetic encrypted fixture is unavailable."
                 return
@@ -299,13 +308,12 @@ class MainActivity : FragmentActivity() {
             null
         }
         vaultStatus = "Waiting for system authentication."
-        authenticateVaultOperation(
-            activity = this,
-            mode = vaultMode,
+        authenticateVaultOperationSafely(
+            mode = requestedMode,
             cipher = cipher,
             onAuthorized = { authorizedCipher ->
                 vaultStatus = try {
-                    val operationCipher = authorizedCipher ?: vaultExperiment.beginDecrypt(vaultMode)
+                    val operationCipher = authorizedCipher ?: vaultExperiment.beginDecrypt(requestedMode)
                     vaultExperiment.decryptFixture(operationCipher, tampered)
                 } catch (_: Exception) {
                     if (tampered) "Modified synthetic fixture rejected by AES-GCM authentication."
@@ -329,18 +337,18 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun authenticateThenProbeVaultWindow() {
-        if (vaultMode != VaultKeyMode.BIOMETRIC_OR_CREDENTIAL || !vaultHasKey) {
+        val requestedMode = vaultMode
+        if (requestedMode != VaultKeyMode.BIOMETRIC_OR_CREDENTIAL || !vaultHasKey) {
             vaultStatus = "Select the fallback policy and create its synthetic key first."
             return
         }
         vaultStatus = "Waiting for system authentication."
-        authenticateVaultOperation(
-            activity = this,
-            mode = vaultMode,
+        authenticateVaultOperationSafely(
+            mode = requestedMode,
             cipher = null,
             onAuthorized = {
                 vaultStatus = try {
-                    vaultExperiment.probeEncryptWithoutPrompt(vaultMode)
+                    vaultExperiment.probeEncryptWithoutPrompt(requestedMode)
                 } catch (_: android.security.keystore.UserNotAuthenticatedException) {
                     "Android Keystore denied no-prompt encryption after authentication."
                 } catch (_: Exception) {
@@ -348,6 +356,28 @@ class MainActivity : FragmentActivity() {
                 }
             },
             onFailure = { vaultStatus = "System authentication did not authorize the probe." },
+        )
+    }
+
+    private fun authenticateVaultOperationSafely(
+        mode: VaultKeyMode,
+        cipher: Cipher?,
+        onAuthorized: (Cipher?) -> Unit,
+        onFailure: () -> Unit,
+    ) {
+        vaultAuthenticationPending = true
+        authenticateVaultOperation(
+            activity = this,
+            mode = mode,
+            cipher = cipher,
+            onAuthorized = { authorizedCipher ->
+                vaultAuthenticationPending = false
+                onAuthorized(authorizedCipher)
+            },
+            onFailure = {
+                vaultAuthenticationPending = false
+                onFailure()
+            },
         )
     }
 
