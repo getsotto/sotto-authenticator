@@ -46,12 +46,10 @@ and Rust memory boundaries.
 
 ## Deferred decisions
 
-1. Should the portable recovery factor be generated for the user or chosen by
-   the user? Step 2 PR 02 compares these journeys.
-2. Should the first portable export be an explicit user-managed file, with
-   sync remaining out of scope?
-3. Which desktop and CLI clients are compatibility targets for the first
-   portable format, even if those clients ship later?
+Step 2 PR 02's recovery-factor and user-journey proposal is in
+[ADR 0004](0004-recovery-factor-and-portable-vault-journey.md). The portable
+format, cryptographic parameters, import semantics, and supported future
+desktop or CLI clients remain undecided.
 
 ## Review trigger
 
