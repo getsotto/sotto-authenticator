@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1810A5B68C4B6B0DBA0ED491 /* ProtectedKeyExperiment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */; };
 		677A94F3C51634140BB2F599 /* authenticator_bridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706CDBDD56D1ECB5D2B048A4 /* authenticator_bridge.swift */; };
+		9C30EDE3077AD7D333A116E1 /* VaultKeyExperiment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3898E127007E3C5D9C5C56FD /* VaultKeyExperiment.swift */; };
 		BBD84968578597F1CBB2725D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE256014C46BCA67C2179AF /* ContentView.swift */; };
 		BD8CC1D4F6BC3AC9F10E70D1 /* SnapshotInteropExperiment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19FEBB344B4EFA230E0D24E /* SnapshotInteropExperiment.swift */; };
 		D938454BF59D39D327792CE4 /* SnapshotInteropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5236586C59ED7DE2362676E4 /* SnapshotInteropTests.swift */; };
@@ -28,6 +29,7 @@
 
 /* Begin PBXFileReference section */
 		13088C350EB4FF76681BDC2D /* authenticator_bridgeFFI.modulemap */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; path = authenticator_bridgeFFI.modulemap; sourceTree = "<group>"; };
+		3898E127007E3C5D9C5C56FD /* VaultKeyExperiment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultKeyExperiment.swift; sourceTree = "<group>"; };
 		41A217F0C9C43CD2599738A0 /* authenticator_bridgeFFI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = authenticator_bridgeFFI.h; sourceTree = "<group>"; };
 		5236586C59ED7DE2362676E4 /* SnapshotInteropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotInteropTests.swift; sourceTree = "<group>"; };
 		5EBC5B78C460B4E9856E7D55 /* AuthenticatorSpikeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AuthenticatorSpikeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -85,6 +87,7 @@
 				BFE256014C46BCA67C2179AF /* ContentView.swift */,
 				F9FD8B68AF86A74F57B5C43B /* ProtectedKeyExperiment.swift */,
 				C19FEBB344B4EFA230E0D24E /* SnapshotInteropExperiment.swift */,
+				3898E127007E3C5D9C5C56FD /* VaultKeyExperiment.swift */,
 				D830528431D5EB932404BFEB /* Generated */,
 			);
 			path = Authenticator;
@@ -196,6 +199,7 @@
 				BBD84968578597F1CBB2725D /* ContentView.swift in Sources */,
 				1810A5B68C4B6B0DBA0ED491 /* ProtectedKeyExperiment.swift in Sources */,
 				BD8CC1D4F6BC3AC9F10E70D1 /* SnapshotInteropExperiment.swift in Sources */,
+				9C30EDE3077AD7D333A116E1 /* VaultKeyExperiment.swift in Sources */,
 				677A94F3C51634140BB2F599 /* authenticator_bridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -223,7 +227,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/Authenticator/Generated";
 				INFOPLIST_KEY_CFBundleDisplayName = "Sotto Authenticator Spike";
-				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to use a disposable synthetic signing key.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to use disposable synthetic signing and vault-key experiments.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -370,7 +374,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)/Authenticator/Generated";
 				INFOPLIST_KEY_CFBundleDisplayName = "Sotto Authenticator Spike";
-				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to use a disposable synthetic signing key.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Authenticate to use disposable synthetic signing and vault-key experiments.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -29,6 +29,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import java.security.Signature
+import javax.crypto.AEADBadTagException
+import javax.crypto.Cipher
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -147,6 +149,50 @@ class MainActivity : FragmentActivity() {
                             Text("Decrypt pasted envelope")
                         }
                         Text(snapshotStatus, modifier = Modifier.padding(top = 8.dp))
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                        Text("Temporary native vault-key experiment")
+                        Text(
+                            "Uses one synthetic AES key and fixture. The encrypted fixture stays in memory and is discarded on process restart.",
+                        )
+                        Text(vaultStatus, modifier = Modifier.padding(top = 8.dp))
+                        Button(
+                            onClick = { useVaultMode(VaultKeyMode.BIOMETRIC_PER_OPERATION) },
+                            enabled = !vaultAuthenticationPending,
+                        ) {
+                            Text("Use per-operation biometric policy")
+                        }
+                        Button(
+                            onClick = { useVaultMode(VaultKeyMode.BIOMETRIC_OR_CREDENTIAL) },
+                            enabled = !vaultAuthenticationPending,
+                        ) {
+                            Text("Use biometric or device-credential policy")
+                        }
+                        Text("Selected policy: ${vaultMode.name}")
+                        Button(onClick = { createVaultKey() }, enabled = !vaultAuthenticationPending) {
+                            Text("Create synthetic AES key")
+                        }
+                        Button(onClick = { encryptVaultFixture() }, enabled = vaultHasKey && !vaultAuthenticationPending) {
+                            Text("Authenticate and encrypt fixture")
+                        }
+                        Button(onClick = { probeVaultEncryptionWithoutPrompt() }, enabled = vaultHasKey && !vaultAuthenticationPending) {
+                            Text("Probe encryption without a prompt")
+                        }
+                        Button(
+                            onClick = { authenticateThenProbeVaultWindow() },
+                            enabled = vaultHasKey && vaultMode == VaultKeyMode.BIOMETRIC_OR_CREDENTIAL && !vaultAuthenticationPending,
+                        ) {
+                            Text("Authenticate, then probe the five-second window")
+                        }
+                        Button(onClick = { decryptVaultFixture() }, enabled = vaultHasKey && vaultEnvelopePresent && !vaultAuthenticationPending) {
+                            Text("Authenticate and decrypt fixture")
+                        }
+                        Button(onClick = { decryptVaultFixture(tampered = true) }, enabled = vaultHasKey && vaultEnvelopePresent && !vaultAuthenticationPending) {
+                            Text("Authenticate and reject modified fixture")
+                        }
+                        Button(onClick = { deleteVaultKey() }, enabled = vaultHasAnyKey && !vaultAuthenticationPending) {
+                            Text("Delete synthetic AES key")
+                        }
                     }
                 }
             }
@@ -157,6 +203,13 @@ class MainActivity : FragmentActivity() {
     private var status by mutableStateOf("No synthetic key has been created.")
     private var snapshotStatus by mutableStateOf("No snapshot operation has run.")
     private var snapshotEnvelope by mutableStateOf("")
+    private val vaultExperiment = VaultKeyExperiment()
+    private var vaultMode by mutableStateOf(VaultKeyMode.BIOMETRIC_PER_OPERATION)
+    private var vaultHasKey by mutableStateOf(vaultExperiment.hasKey(VaultKeyMode.BIOMETRIC_PER_OPERATION))
+    private var vaultHasAnyKey by mutableStateOf(vaultExperiment.hasAnyKey())
+    private var vaultEnvelopePresent by mutableStateOf(false)
+    private var vaultAuthenticationPending by mutableStateOf(false)
+    private var vaultStatus by mutableStateOf("No synthetic vault operation has run.")
     private val snapshotTestKey = ByteArray(32) { 0x11 } // gitleaks:allow -- public synthetic interoperability fixture only
     private val snapshotTestNonce = ByteArray(12) { 0x22 } // gitleaks:allow -- public synthetic interoperability fixture only
     private val snapshotFixture = """{"formatVersion":1,"project":"synthetic-project","instance":"synthetic-instance","label":"Synthetic test entry"}"""
@@ -182,6 +235,164 @@ class MainActivity : FragmentActivity() {
             }
         } catch (_: Exception) {
             "Synthetic snapshot was rejected."
+        }
+    }
+
+    private fun useVaultMode(mode: VaultKeyMode) {
+        vaultMode = mode
+        vaultHasKey = vaultExperiment.hasKey(mode)
+        vaultEnvelopePresent = false
+        vaultStatus = "Selected ${mode.name}; create its synthetic key to begin."
+    }
+
+    private fun createVaultKey() {
+        vaultStatus = try {
+            vaultExperiment.createKey(vaultMode).also {
+                vaultHasKey = true
+                vaultHasAnyKey = vaultExperiment.hasAnyKey()
+                vaultEnvelopePresent = false
+            }
+        } catch (_: Exception) {
+            vaultHasKey = false
+            vaultHasAnyKey = vaultExperiment.hasAnyKey()
+            vaultEnvelopePresent = false
+            "Synthetic AES key creation failed. Set a secure device lock and required biometric enrollment."
+        }
+    }
+
+    private fun encryptVaultFixture() {
+        val requestedMode = vaultMode
+        if (!vaultHasKey) {
+            vaultStatus = "Create the synthetic AES key first."
+            return
+        }
+        val cipher = if (requestedMode == VaultKeyMode.BIOMETRIC_PER_OPERATION) {
+            try {
+                vaultExperiment.beginEncrypt(requestedMode)
+            } catch (_: Exception) {
+                vaultStatus = "Synthetic AES key is unavailable or invalidated."
+                return
+            }
+        } else {
+            null
+        }
+        vaultStatus = "Waiting for system authentication."
+        authenticateVaultOperationSafely(
+            mode = requestedMode,
+            cipher = cipher,
+            onAuthorized = { authorizedCipher ->
+                vaultStatus = try {
+                    val operationCipher = authorizedCipher ?: vaultExperiment.beginEncrypt(requestedMode)
+                    vaultExperiment.saveEncryptedFixture(operationCipher).also { vaultEnvelopePresent = true }
+                } catch (_: Exception) {
+                    "Synthetic encryption failed or authentication was unavailable."
+                }
+            },
+            onFailure = { vaultStatus = "System authentication did not authorize encryption." },
+        )
+    }
+
+    private fun decryptVaultFixture(tampered: Boolean = false) {
+        val requestedMode = vaultMode
+        if (!vaultHasKey || !vaultEnvelopePresent) {
+            vaultStatus = "Create a key and encrypt the synthetic fixture first."
+            return
+        }
+        val cipher = if (requestedMode == VaultKeyMode.BIOMETRIC_PER_OPERATION) {
+            try {
+                vaultExperiment.beginDecrypt(requestedMode)
+            } catch (_: Exception) {
+                vaultStatus = "Synthetic encrypted fixture is unavailable."
+                return
+            }
+        } else {
+            null
+        }
+        vaultStatus = "Waiting for system authentication."
+        authenticateVaultOperationSafely(
+            mode = requestedMode,
+            cipher = cipher,
+            onAuthorized = { authorizedCipher ->
+                vaultStatus = try {
+                    val operationCipher = authorizedCipher ?: vaultExperiment.beginDecrypt(requestedMode)
+                    vaultExperiment.decryptFixture(operationCipher, tampered)
+                } catch (_: AEADBadTagException) {
+                    if (tampered) "Modified synthetic fixture rejected by AES-GCM authentication."
+                    else "Synthetic decryption failed or authentication was unavailable."
+                } catch (_: Exception) {
+                    "Synthetic decryption failed or authentication was unavailable."
+                }
+            },
+            onFailure = { vaultStatus = "System authentication did not authorize decryption." },
+        )
+    }
+
+    private fun probeVaultEncryptionWithoutPrompt() {
+        vaultStatus = try {
+            vaultExperiment.probeEncryptWithoutPrompt(vaultMode)
+        } catch (_: android.security.keystore.UserNotAuthenticatedException) {
+            "Android Keystore denied encryption without recent system authentication."
+        } catch (_: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            "Synthetic key was invalidated. Delete and recreate it."
+        } catch (_: Exception) {
+            "No-prompt encryption probe was denied or unavailable."
+        }
+    }
+
+    private fun authenticateThenProbeVaultWindow() {
+        val requestedMode = vaultMode
+        if (requestedMode != VaultKeyMode.BIOMETRIC_OR_CREDENTIAL || !vaultHasKey) {
+            vaultStatus = "Select the fallback policy and create its synthetic key first."
+            return
+        }
+        vaultStatus = "Waiting for system authentication."
+        authenticateVaultOperationSafely(
+            mode = requestedMode,
+            cipher = null,
+            onAuthorized = {
+                vaultStatus = try {
+                    vaultExperiment.probeEncryptWithoutPrompt(requestedMode)
+                } catch (_: android.security.keystore.UserNotAuthenticatedException) {
+                    "Android Keystore denied no-prompt encryption after authentication."
+                } catch (_: Exception) {
+                    "Post-authentication no-prompt probe failed."
+                }
+            },
+            onFailure = { vaultStatus = "System authentication did not authorize the probe." },
+        )
+    }
+
+    private fun authenticateVaultOperationSafely(
+        mode: VaultKeyMode,
+        cipher: Cipher?,
+        onAuthorized: (Cipher?) -> Unit,
+        onFailure: () -> Unit,
+    ) {
+        vaultAuthenticationPending = true
+        authenticateVaultOperation(
+            activity = this,
+            mode = mode,
+            cipher = cipher,
+            onAuthorized = { authorizedCipher ->
+                vaultAuthenticationPending = false
+                onAuthorized(authorizedCipher)
+            },
+            onFailure = {
+                vaultAuthenticationPending = false
+                onFailure()
+            },
+        )
+    }
+
+    private fun deleteVaultKey() {
+        val deleted = vaultExperiment.deleteKeys()
+        vaultHasKey = vaultExperiment.hasKey(vaultMode)
+        vaultHasAnyKey = vaultExperiment.hasAnyKey()
+        vaultEnvelopePresent = false
+        vaultStatus = if (deleted) {
+            "Synthetic AES keys deleted; in-memory fixture discarded."
+        } else {
+            "No synthetic AES keys were present."
         }
     }
 

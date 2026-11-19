@@ -1,8 +1,9 @@
 # ADR 0002: proceed to a local vault design gate
 
-- Status: proposed; maintainer confirmation required
+- Status: accepted for bounded synthetic key-protection characterization
 - Date: 2026-11-18
 - Evidence: [Step 1 threat model and architecture gate](../engineering/step-1-threat-model-and-architecture-gate.md)
+- Follow-up evidence: [native vault-key protection spike](../engineering/native-vault-key-protection.md)
 
 ## Context
 
@@ -22,7 +23,7 @@ The first implementation should keep recurring infrastructure cost close to
 zero. Cross-platform migration is a product requirement, so a device-bound key
 cannot be the only way to recover credential data.
 
-## Proposed decision
+## Decision
 
 - Proceed to a bounded design and local-only credential-storage spike.
 - Retain native iOS/Android clients, a shared Rust domain core, and the UniFFI
@@ -36,11 +37,12 @@ cannot be the only way to recover credential data.
 - Keep hosted services, sync, and object storage out of the next stage. The
   local-only stage requires no recurring infrastructure.
 
-## Consequences if accepted
+## Consequences
 
-The next stage is allowed to compare and prototype storage and recovery
-approaches using synthetic fixtures. It is not allowed to accept real account
-secrets or claim production security. The design must address device loss,
+The bounded characterization spike in PR 12 exercises native AES-GCM keys with
+synthetic fixtures. Further design work may compare storage and recovery
+approaches using synthetic fixtures. No stage is allowed to accept real
+account secrets or claim production security. The design must address device loss,
 passcode knowledge, lifecycle invalidation, cross-platform import/export,
 plaintext copies, diagnostics, deletion, and backup/restore.
 
