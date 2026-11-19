@@ -3,7 +3,6 @@
 - Status: proposed; maintainer decision required
 - Date: 2026-11-19
 - Evidence: [native vault-key protection findings](../engineering/native-vault-key-protection.md)
-- Options: [local vault key hierarchy and recovery options](../engineering/local-vault-key-hierarchy-options.md)
 
 ## Context
 
