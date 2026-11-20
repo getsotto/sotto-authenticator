@@ -1,5 +1,6 @@
 use super::*;
 use data_encoding::HEXLOWER;
+use recovery_phrase::RecoveryPhrase;
 
 const EMPTY_VAULT: &str = r#"{"formatVersion":1,"vaultId":"00000000000000000000000000000000","exportCounter":1,"issuedAt":0,"projects":[]}"#;
 // Public synthetic values from the independent Node writer and Python reader.
@@ -15,6 +16,32 @@ const NODE_ENVELOPE: &str = concat!(
 
 fn node_entropy() -> SecretKey {
     Zeroizing::new(std::array::from_fn(|i| i as u8))
+}
+
+#[test]
+fn a_reentered_recovery_phrase_opens_a_synthetic_export() {
+    let vault: SyntheticVault = serde_json::from_str(EMPTY_VAULT).unwrap();
+    let (envelope, written_words) = {
+        let phrase = RecoveryPhrase::generate().unwrap();
+        let envelope = export(&vault, &phrase.entropy().unwrap()).unwrap();
+        // Keep this simulated copy of the phrase within the test.
+        let mut written_words = Zeroizing::new(String::with_capacity(24 * 9));
+        for (index, word) in phrase.words().enumerate() {
+            if index != 0 {
+                written_words.push(' ');
+            }
+            written_words.push_str(word);
+        }
+        (envelope, written_words)
+    };
+    let restored_phrase = RecoveryPhrase::parse(&written_words).unwrap();
+    assert!(open(&envelope, &restored_phrase.entropy().unwrap()).unwrap() == vault);
+
+    let wrong_phrase = RecoveryPhrase::generate().unwrap();
+    assert_eq!(
+        open(&envelope, &wrong_phrase.entropy().unwrap()).err(),
+        Some(ExportError::AuthenticationFailed)
+    );
 }
 
 #[test]

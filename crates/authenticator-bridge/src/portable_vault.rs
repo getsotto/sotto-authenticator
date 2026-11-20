@@ -237,4 +237,5 @@ fn exports_same_synthetic_vault_with_fresh_randomness() {
     }
 }
 
+mod recovery_phrase;
 mod tests;
