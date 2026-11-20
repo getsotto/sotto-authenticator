@@ -20,7 +20,8 @@ const WRAPPED_KEY_END: usize = WRAP_NONCE_END + KEY_BYTES;
 const WRAP_END: usize = WRAPPED_KEY_END + TAG_BYTES;
 const PAYLOAD_START: usize = WRAP_END + NONCE_BYTES;
 const OVERHEAD: usize = PAYLOAD_START + TAG_BYTES;
-const MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
+const MAX_PLAINTEXT_BYTES: usize = 1024 * 1024;
+const MAX_ENVELOPE_BYTES: usize = OVERHEAD + MAX_PLAINTEXT_BYTES;
 
 type SecretKey = Zeroizing<[u8; KEY_BYTES]>;
 
@@ -65,7 +66,7 @@ impl ExportRandomness {
 }
 
 fn export(vault: &SyntheticVault, entropy: &SecretKey) -> Result<Vec<u8>, ExportError> {
-    let mut payload = vault.to_bytes()?;
+    let mut payload = vault.to_bytes(MAX_PLAINTEXT_BYTES)?;
     seal(&mut payload, entropy, ExportRandomness::generate()?)
 }
 
@@ -74,7 +75,7 @@ fn seal(
     entropy: &SecretKey,
     randomness: ExportRandomness,
 ) -> Result<Vec<u8>, ExportError> {
-    if payload.len() > MAX_PAYLOAD_BYTES {
+    if payload.len() > MAX_PLAINTEXT_BYTES {
         return Err(ExportError::InvalidSize);
     }
 
@@ -111,7 +112,7 @@ fn seal(
 fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportError> {
     // Only the fixed fields and tags determine the minimum. The authenticated
     // JSON schema determines which plaintext lengths can actually be valid.
-    if !(OVERHEAD..=OVERHEAD + MAX_PAYLOAD_BYTES).contains(&envelope.len()) {
+    if !(OVERHEAD..=MAX_ENVELOPE_BYTES).contains(&envelope.len()) {
         return Err(ExportError::InvalidSize);
     }
     if envelope[..4] != HEADER[..4] || envelope[6..8] != HEADER[6..8] {

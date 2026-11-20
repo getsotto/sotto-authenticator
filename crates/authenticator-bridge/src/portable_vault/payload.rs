@@ -9,7 +9,7 @@ use serde::de::{
 use serde::{Deserialize, Deserializer, Serialize};
 use zeroize::Zeroizing;
 
-use super::{ExportError, MAX_PAYLOAD_BYTES};
+use super::ExportError;
 
 const MAX_PROJECTS: usize = 32;
 const MAX_INSTANCES_PER_PROJECT: usize = 16;
@@ -51,19 +51,17 @@ struct Entry {
 }
 
 impl SyntheticVault {
+    // Envelope callers check byte length and authenticate before parsing.
     pub(super) fn from_bytes(bytes: &[u8]) -> Result<Self, ExportError> {
-        if bytes.len() > MAX_PAYLOAD_BYTES {
-            return Err(ExportError::InvalidSize);
-        }
         let JsonObject(vault): JsonObject<Self> =
             serde_json::from_slice(bytes).map_err(|_| ExportError::InvalidPayload)?;
         vault.validate()?;
         Ok(vault)
     }
 
-    pub(super) fn to_bytes(&self) -> Result<Zeroizing<Vec<u8>>, ExportError> {
+    pub(super) fn to_bytes(&self, limit: usize) -> Result<Zeroizing<Vec<u8>>, ExportError> {
         self.validate()?;
-        let mut size = PayloadSize(0);
+        let mut size = PayloadSize { bytes: 0, limit };
         serde_json::to_writer(&mut size, self).map_err(|error| {
             // The writer's only I/O error is exceeding the payload cap.
             if error.is_io() {
@@ -74,7 +72,7 @@ impl SyntheticVault {
         })?;
         // Allocate the complete buffer once so growth does not leave earlier
         // plaintext allocations outside the Zeroizing buffer.
-        let mut output = Zeroizing::new(Vec::with_capacity(size.0));
+        let mut output = Zeroizing::new(Vec::with_capacity(size.bytes));
         serde_json::to_writer(&mut *output, self).map_err(|_| ExportError::InvalidPayload)?;
         Ok(output)
     }
@@ -122,14 +120,17 @@ fn validate_record<'a>(
     Ok(())
 }
 
-struct PayloadSize(usize);
+struct PayloadSize {
+    bytes: usize,
+    limit: usize,
+}
 
 impl Write for PayloadSize {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.len() > MAX_PAYLOAD_BYTES - self.0 {
+        if bytes.len() > self.limit - self.bytes {
             return Err(io::Error::other("payload exceeds size limit"));
         }
-        self.0 += bytes.len();
+        self.bytes += bytes.len();
         Ok(bytes.len())
     }
 

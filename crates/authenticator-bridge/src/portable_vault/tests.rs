@@ -258,9 +258,9 @@ fn validates_short_authenticated_payloads_at_the_json_boundary() {
 fn bounds_the_payload_at_one_mebibyte() {
     let entropy = node_entropy();
     let mut bytes = EMPTY_VAULT.as_bytes().to_vec();
-    bytes.resize(MAX_PAYLOAD_BYTES, b' ');
+    bytes.resize(MAX_PLAINTEXT_BYTES, b' ');
     let mut envelope = seal(&mut bytes, &entropy, ExportRandomness::generate().unwrap()).unwrap();
-    assert_eq!(envelope.len(), OVERHEAD + MAX_PAYLOAD_BYTES);
+    assert_eq!(envelope.len(), 1_048_704);
     assert!(open(&envelope, &entropy).is_ok());
 
     envelope.push(0);
@@ -315,7 +315,8 @@ fn round_trips_nested_projects_instances_and_entries() {
     let entropy = node_entropy();
     let envelope = export(&vault, &entropy).unwrap();
     let restored = open(&envelope, &entropy).unwrap();
-    let decoded: serde_json::Value = serde_json::from_slice(&restored.to_bytes().unwrap()).unwrap();
+    let decoded: serde_json::Value =
+        serde_json::from_slice(&restored.to_bytes(MAX_PLAINTEXT_BYTES).unwrap()).unwrap();
     assert_eq!(decoded, original);
 }
 
@@ -337,7 +338,8 @@ fn preserves_label_text_within_the_utf8_byte_limit() {
     let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
     let entropy = node_entropy();
     let restored = open(&export(&vault, &entropy).unwrap(), &entropy).unwrap();
-    let decoded: serde_json::Value = serde_json::from_slice(&restored.to_bytes().unwrap()).unwrap();
+    let decoded: serde_json::Value =
+        serde_json::from_slice(&restored.to_bytes(MAX_PLAINTEXT_BYTES).unwrap()).unwrap();
     assert_eq!(decoded, original);
 }
 
@@ -441,7 +443,7 @@ fn accepts_each_collection_limit_and_rejects_one_more_item() {
 }
 
 #[test]
-fn rejects_a_valid_record_tree_above_the_total_size_cap() {
+fn applies_export_size_policy_separately_from_schema_validation() {
     let mut large = populated_payload(16, 16, 64);
     for project in large["projects"].as_array_mut().unwrap() {
         for instance in project["instances"].as_array_mut().unwrap() {
@@ -450,8 +452,9 @@ fn rejects_a_valid_record_tree_above_the_total_size_cap() {
             }
         }
     }
-    // Individually valid collections and labels can still exceed the envelope cap.
-    let vault: SyntheticVault = serde_json::from_value(large).unwrap();
+    let plaintext = large.to_string();
+    assert!(plaintext.len() > MAX_PLAINTEXT_BYTES);
+    let vault = SyntheticVault::from_bytes(plaintext.as_bytes()).unwrap();
     assert_eq!(
         export(&vault, &node_entropy()).err(),
         Some(ExportError::InvalidSize)
