@@ -20,7 +20,7 @@ fn node_entropy() -> SecretKey {
 
 #[test]
 fn exports_same_synthetic_vault_with_fresh_randomness() {
-    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes()).unwrap();
+    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let entropy = Zeroizing::new([0x23; KEY_BYTES]);
     let first = export(&vault, &entropy).expect("first export");
     let second = export(&vault, &entropy).expect("second export");
@@ -33,7 +33,7 @@ fn exports_same_synthetic_vault_with_fresh_randomness() {
 
 #[test]
 fn a_reentered_recovery_phrase_opens_a_synthetic_export() {
-    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes()).unwrap();
+    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let (envelope, written_words) = {
         let phrase = RecoveryPhrase::generate().unwrap();
         let envelope = export(&vault, &phrase.entropy().unwrap()).unwrap();
@@ -260,7 +260,8 @@ fn bounds_the_payload_at_one_mebibyte() {
     let mut bytes = EMPTY_VAULT.as_bytes().to_vec();
     bytes.resize(MAX_PLAINTEXT_BYTES, b' ');
     let mut envelope = seal(&mut bytes, &entropy, ExportRandomness::generate().unwrap()).unwrap();
-    assert_eq!(envelope.len(), 1_048_704);
+    assert_eq!(OVERHEAD, 128);
+    assert_eq!(envelope.len(), OVERHEAD + MAX_PLAINTEXT_BYTES);
     assert!(open(&envelope, &entropy).is_ok());
 
     envelope.push(0);
@@ -311,7 +312,8 @@ fn round_trips_nested_projects_instances_and_entries() {
     original["projects"][0]["instances"][0]["entries"][0]["id"] = repeated_id.clone();
     original["projects"][0]["instances"][1]["entries"][0]["id"] = repeated_id.clone();
     original["projects"][1]["instances"][0]["id"] = repeated_id;
-    let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
+    let vault =
+        SyntheticVault::from_bytes(original.to_string().as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let entropy = node_entropy();
     let envelope = export(&vault, &entropy).unwrap();
     let restored = open(&envelope, &entropy).unwrap();
@@ -335,7 +337,8 @@ fn preserves_label_text_within_the_utf8_byte_limit() {
     ]) {
         entry["label"] = label.into();
     }
-    let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
+    let vault =
+        SyntheticVault::from_bytes(original.to_string().as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let entropy = node_entropy();
     let restored = open(&export(&vault, &entropy).unwrap(), &entropy).unwrap();
     let decoded: serde_json::Value =
@@ -432,11 +435,11 @@ fn accepts_each_collection_limit_and_rejects_one_more_item() {
     ] {
         let (projects, instances, entries) = accepted;
         let valid = populated_payload(projects, instances, entries).to_string();
-        assert!(SyntheticVault::from_bytes(valid.as_bytes()).is_ok());
+        assert!(SyntheticVault::from_bytes(valid.as_bytes(), MAX_PLAINTEXT_BYTES).is_ok());
         let (projects, instances, entries) = rejected;
         let too_many = populated_payload(projects, instances, entries).to_string();
         assert_eq!(
-            SyntheticVault::from_bytes(too_many.as_bytes()).err(),
+            SyntheticVault::from_bytes(too_many.as_bytes(), MAX_PLAINTEXT_BYTES).err(),
             Some(ExportError::InvalidPayload)
         );
     }
@@ -454,7 +457,11 @@ fn applies_export_size_policy_separately_from_schema_validation() {
     }
     let plaintext = large.to_string();
     assert!(plaintext.len() > MAX_PLAINTEXT_BYTES);
-    let vault = SyntheticVault::from_bytes(plaintext.as_bytes()).unwrap();
+    assert_eq!(
+        SyntheticVault::from_bytes(plaintext.as_bytes(), MAX_PLAINTEXT_BYTES).err(),
+        Some(ExportError::InvalidSize)
+    );
+    let vault = SyntheticVault::from_bytes(plaintext.as_bytes(), plaintext.len()).unwrap();
     assert_eq!(
         export(&vault, &node_entropy()).err(),
         Some(ExportError::InvalidSize)
@@ -481,7 +488,8 @@ fn previews_authenticated_metadata_against_history_for_the_same_vault() {
     original["vaultId"] = vault_id.into();
     original["issuedAt"] = 1_700_000_000_u64.into();
     original["exportCounter"] = 7.into();
-    let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
+    let vault =
+        SyntheticVault::from_bytes(original.to_string().as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let entropy = node_entropy();
     let phrase = synthetic_recovery_phrase(&entropy);
     let envelope = export(&vault, &entropy).unwrap();
@@ -516,7 +524,7 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
     let entropy = node_entropy();
     let phrase = synthetic_recovery_phrase(&entropy);
     let wrong_phrase = synthetic_recovery_phrase(&Zeroizing::new([0xff; KEY_BYTES]));
-    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes()).unwrap();
+    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let envelope = export(&vault, &entropy).unwrap();
     assert_eq!(
         preview_restore(&envelope, "invalid phrase", &history).err(),

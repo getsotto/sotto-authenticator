@@ -148,7 +148,7 @@ fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportEr
         )
         .map_err(|_| ExportError::AuthenticationFailed)?;
 
-    SyntheticVault::from_bytes(&payload)
+    SyntheticVault::from_bytes(&payload, MAX_PLAINTEXT_BYTES)
 }
 
 fn cipher(key: &SecretKey) -> Aes256Gcm {

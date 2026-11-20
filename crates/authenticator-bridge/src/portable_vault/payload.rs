@@ -51,8 +51,10 @@ struct Entry {
 }
 
 impl SyntheticVault {
-    // Envelope callers check byte length and authenticate before parsing.
-    pub(super) fn from_bytes(bytes: &[u8]) -> Result<Self, ExportError> {
+    pub(super) fn from_bytes(bytes: &[u8], limit: usize) -> Result<Self, ExportError> {
+        if bytes.len() > limit {
+            return Err(ExportError::InvalidSize);
+        }
         let JsonObject(vault): JsonObject<Self> =
             serde_json::from_slice(bytes).map_err(|_| ExportError::InvalidPayload)?;
         vault.validate()?;
