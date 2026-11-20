@@ -274,3 +274,153 @@ fn bounds_the_payload_at_one_mebibyte() {
         Some(ExportError::InvalidSize)
     );
 }
+
+fn populated_payload(projects: usize, instances: usize, entries: usize) -> serde_json::Value {
+    use serde_json::json;
+
+    let mut next_id = 0;
+    let mut id = || {
+        next_id += 1;
+        format!("{next_id:032x}")
+    };
+    let projects: Vec<_> = (0..projects)
+        .map(|_| {
+            let instances: Vec<_> = (0..instances)
+                .map(|_| {
+                    let entries: Vec<_> = (0..entries)
+                        .map(|_| json!({"id": id(), "label": "synthetic café"}))
+                        .collect();
+                    json!({"id": id(), "name": "synthetic staging", "entries": entries})
+                })
+                .collect();
+            json!({"id": id(), "name": "synthetic project", "instances": instances})
+        })
+        .collect();
+    let mut vault: serde_json::Value = serde_json::from_str(EMPTY_VAULT).unwrap();
+    vault["projects"] = json!(projects);
+    vault
+}
+
+#[test]
+fn round_trips_nested_projects_instances_and_entries() {
+    let original = populated_payload(2, 2, 3);
+    let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
+    let entropy = node_entropy();
+    let envelope = export(&vault, &entropy).unwrap();
+    let restored = open(&envelope, &entropy).unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&restored.to_bytes().unwrap()).unwrap();
+    assert_eq!(decoded, original);
+}
+
+#[test]
+fn rejects_authenticated_invalid_nested_records() {
+    let original = populated_payload(2, 1, 1);
+    let mut cases = Vec::new();
+
+    let mut duplicate = original.clone();
+    duplicate["projects"][1]["instances"][0]["entries"][0]["id"] =
+        original["projects"][0]["id"].clone();
+    cases.push((
+        "duplicate across record types and projects",
+        duplicate.to_string(),
+    ));
+
+    let mut positional = original.clone();
+    let project = &original["projects"][0];
+    positional["projects"][0] =
+        serde_json::json!([project["id"], project["name"], project["instances"]]);
+    cases.push(("positional project", positional.to_string()));
+
+    let mut positional_instance = original.clone();
+    let instance = &original["projects"][0]["instances"][0];
+    positional_instance["projects"][0]["instances"][0] =
+        serde_json::json!([instance["id"], instance["name"], instance["entries"]]);
+    cases.push(("positional instance", positional_instance.to_string()));
+
+    let mut positional_entry = original.clone();
+    let entry = &original["projects"][0]["instances"][0]["entries"][0];
+    positional_entry["projects"][0]["instances"][0]["entries"][0] =
+        serde_json::json!([entry["id"], entry["label"]]);
+    cases.push(("positional entry", positional_entry.to_string()));
+
+    for (case, field, value) in [
+        ("credential field", "seed", serde_json::Value::Null),
+        (
+            "external parent reference",
+            "instanceId",
+            original["projects"][0]["id"].clone(),
+        ),
+        ("oversized UTF-8 label", "label", "é".repeat(65).into()),
+        ("blank label", "label", " ".into()),
+        (
+            "control character in label",
+            "label",
+            "synthetic\nlabel".into(),
+        ),
+        ("invalid identity", "id", "not-a-record-id".into()),
+    ] {
+        let mut invalid = original.clone();
+        invalid["projects"][0]["instances"][0]["entries"][0][field] = value;
+        cases.push((case, invalid.to_string()));
+    }
+    cases.push((
+        "duplicate escaped nested field",
+        original.to_string().replacen(
+            r#""label":"synthetic café""#,
+            r#""label":"synthetic café","labe\u006c":"duplicate""#,
+            1,
+        ),
+    ));
+
+    let entropy = node_entropy();
+    for (case, json) in cases {
+        let envelope = seal(
+            &mut json.into_bytes(),
+            &entropy,
+            ExportRandomness::generate().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            open(&envelope, &entropy).err(),
+            Some(ExportError::InvalidPayload),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn accepts_each_collection_limit_and_rejects_one_more_item() {
+    for (accepted, rejected) in [
+        ((32, 0, 0), (33, 0, 0)),
+        ((1, 16, 0), (1, 17, 0)),
+        ((1, 1, 64), (1, 1, 65)),
+    ] {
+        let (projects, instances, entries) = accepted;
+        let valid = populated_payload(projects, instances, entries).to_string();
+        assert!(SyntheticVault::from_bytes(valid.as_bytes()).is_ok());
+        let (projects, instances, entries) = rejected;
+        let too_many = populated_payload(projects, instances, entries).to_string();
+        assert_eq!(
+            SyntheticVault::from_bytes(too_many.as_bytes()).err(),
+            Some(ExportError::InvalidPayload)
+        );
+    }
+}
+
+#[test]
+fn rejects_a_valid_record_tree_above_the_total_size_cap() {
+    let mut large = populated_payload(16, 16, 64);
+    for project in large["projects"].as_array_mut().unwrap() {
+        for instance in project["instances"].as_array_mut().unwrap() {
+            for entry in instance["entries"].as_array_mut().unwrap() {
+                entry["label"] = "e".repeat(128).into();
+            }
+        }
+    }
+    // Individually valid collections and labels can still exceed the envelope cap.
+    let vault: SyntheticVault = serde_json::from_value(large).unwrap();
+    assert_eq!(
+        export(&vault, &node_entropy()).err(),
+        Some(ExportError::InvalidSize)
+    );
+}
