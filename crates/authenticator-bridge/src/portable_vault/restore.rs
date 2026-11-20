@@ -7,7 +7,8 @@ use super::{open, ExportError};
 pub(super) enum RestoreHistory {
     NoLocalHistory,
     OlderOrEqual,
-    NewerThanLocal,
+    /// The counter exceeds local history, which cannot rule out an offline fork.
+    HigherCounterFreshnessUnknown,
 }
 
 pub(super) struct RestorePreview {
@@ -39,7 +40,7 @@ pub(super) fn preview_restore(
     let history = match local_counters.get(&vault.vault_id) {
         None => RestoreHistory::NoLocalHistory,
         Some(&counter) if vault.export_counter <= counter => RestoreHistory::OlderOrEqual,
-        Some(_) => RestoreHistory::NewerThanLocal,
+        Some(_) => RestoreHistory::HigherCounterFreshnessUnknown,
     };
     Ok(RestorePreview {
         vault_id: vault.vault_id,

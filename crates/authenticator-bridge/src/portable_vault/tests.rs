@@ -496,7 +496,7 @@ fn previews_authenticated_metadata_against_history_for_the_same_vault() {
 
     for (known_counter, expected) in [
         (None, RestoreHistory::NoLocalHistory),
-        (Some(6), RestoreHistory::NewerThanLocal),
+        (Some(6), RestoreHistory::HigherCounterFreshnessUnknown),
         (Some(7), RestoreHistory::OlderOrEqual),
         (Some(8), RestoreHistory::OlderOrEqual),
     ] {
