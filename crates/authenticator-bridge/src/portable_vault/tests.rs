@@ -460,3 +460,92 @@ fn applies_export_size_policy_separately_from_schema_validation() {
         Some(ExportError::InvalidSize)
     );
 }
+
+fn synthetic_recovery_phrase(entropy: &SecretKey) -> String {
+    // This helper is only for the public, deterministic test entropy.
+    bip39::Mnemonic::from_entropy(&entropy[..])
+        .unwrap()
+        .words()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn previews_authenticated_metadata_against_history_for_the_same_vault() {
+    use restore::{preview_restore, RestoreHistory};
+    use std::collections::BTreeMap;
+
+    let vault_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let other_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let mut original = populated_payload(2, 2, 1);
+    original["vaultId"] = vault_id.into();
+    original["issuedAt"] = 1_700_000_000_u64.into();
+    original["exportCounter"] = 7.into();
+    let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let envelope = export(&vault, &entropy).unwrap();
+
+    for (known_counter, expected) in [
+        (None, RestoreHistory::NoLocalHistory),
+        (Some(6), RestoreHistory::NewerThanLocal),
+        (Some(7), RestoreHistory::OlderOrEqual),
+        (Some(8), RestoreHistory::OlderOrEqual),
+    ] {
+        let mut history = BTreeMap::from([(other_id.to_owned(), 200)]);
+        if let Some(counter) = known_counter {
+            history.insert(vault_id.to_owned(), counter);
+        }
+        let preview = preview_restore(&envelope, &phrase, &history).unwrap();
+        assert_eq!(preview.history, expected);
+        assert_eq!(preview.vault_id, vault_id);
+        assert_eq!(preview.issued_at, 1_700_000_000);
+        assert_eq!(preview.export_counter, 7);
+        // Opening or discarding a preview does not advance either counter.
+        assert_eq!(history.get(vault_id).copied(), known_counter);
+        assert_eq!(history.get(other_id), Some(&200));
+    }
+}
+
+#[test]
+fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
+    use restore::{preview_restore, PreviewError};
+    use std::collections::BTreeMap;
+
+    let history = BTreeMap::new();
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let wrong_phrase = synthetic_recovery_phrase(&Zeroizing::new([0xff; KEY_BYTES]));
+    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes()).unwrap();
+    let envelope = export(&vault, &entropy).unwrap();
+    assert_eq!(
+        preview_restore(&envelope, "invalid phrase", &history).err(),
+        Some(PreviewError::InvalidPhrase)
+    );
+    assert_eq!(
+        preview_restore(&envelope, &wrong_phrase, &history).err(),
+        Some(PreviewError::InvalidExport(
+            ExportError::AuthenticationFailed
+        ))
+    );
+    for offset in [WRAPPED_KEY_END, envelope.len() - 1] {
+        let mut tampered = envelope.clone();
+        tampered[offset] ^= 1;
+        assert_eq!(
+            preview_restore(&tampered, &phrase, &history).err(),
+            Some(PreviewError::InvalidExport(
+                ExportError::AuthenticationFailed
+            ))
+        );
+    }
+    let invalid_payload = seal(
+        &mut b"{}".to_vec(),
+        &entropy,
+        ExportRandomness::generate().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        preview_restore(&invalid_payload, &phrase, &history).err(),
+        Some(PreviewError::InvalidExport(ExportError::InvalidPayload))
+    );
+}

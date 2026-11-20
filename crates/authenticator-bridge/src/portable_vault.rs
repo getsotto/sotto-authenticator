@@ -179,4 +179,5 @@ fn hmac_sha256(key: &[u8], chunks: &[&[u8]]) -> SecretKey {
 
 mod payload;
 mod recovery_phrase;
+mod restore;
 mod tests;
