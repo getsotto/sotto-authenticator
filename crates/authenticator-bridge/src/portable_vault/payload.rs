@@ -116,12 +116,7 @@ fn validate_record<'a>(
     id: &'a str,
     label: &str,
 ) -> Result<(), ExportError> {
-    if !valid_id(id)
-        || !ids.insert(id)
-        || label.len() > MAX_LABEL_BYTES
-        || label.trim().is_empty()
-        || label.chars().any(char::is_control)
-    {
+    if !valid_id(id) || !ids.insert(id) || label.len() > MAX_LABEL_BYTES {
         return Err(ExportError::InvalidPayload);
     }
     Ok(())

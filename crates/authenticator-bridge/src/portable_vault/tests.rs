@@ -320,6 +320,28 @@ fn round_trips_nested_projects_instances_and_entries() {
 }
 
 #[test]
+fn preserves_label_text_within_the_utf8_byte_limit() {
+    let mut original = populated_payload(1, 1, 4);
+    let project = &mut original["projects"][0];
+    project["name"] = "".into();
+    project["instances"][0]["name"] = " \t".into();
+    let entries = project["instances"][0]["entries"].as_array_mut().unwrap();
+    for (entry, label) in entries.iter_mut().zip([
+        String::new(),
+        String::from("  "),
+        String::from("synthetic\nline\u{0}"),
+        "é".repeat(64),
+    ]) {
+        entry["label"] = label.into();
+    }
+    let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
+    let entropy = node_entropy();
+    let restored = open(&export(&vault, &entropy).unwrap(), &entropy).unwrap();
+    let decoded: serde_json::Value = serde_json::from_slice(&restored.to_bytes().unwrap()).unwrap();
+    assert_eq!(decoded, original);
+}
+
+#[test]
 fn rejects_authenticated_invalid_nested_records() {
     let original = populated_payload(2, 2, 2);
     let mut cases = Vec::new();
@@ -368,12 +390,6 @@ fn rejects_authenticated_invalid_nested_records() {
             original["projects"][0]["id"].clone(),
         ),
         ("oversized UTF-8 label", "label", "é".repeat(65).into()),
-        ("blank label", "label", " ".into()),
-        (
-            "control character in label",
-            "label",
-            "synthetic\nlabel".into(),
-        ),
         ("invalid identity", "id", "not-a-record-id".into()),
     ] {
         let mut invalid = original.clone();
