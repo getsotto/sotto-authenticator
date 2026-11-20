@@ -4,8 +4,9 @@
 use aes_gcm::aead::{rand_core::RngCore, AeadInPlace, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce, Tag};
 use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
-use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+
+use payload::SyntheticVault;
 use zeroize::{Zeroize, Zeroizing};
 
 const HEADER: &[u8; 8] = b"SOTV\x01\x01\x00\x00";
@@ -20,7 +21,6 @@ const WRAP_END: usize = WRAPPED_KEY_END + TAG_BYTES;
 const PAYLOAD_START: usize = WRAP_END + NONCE_BYTES;
 const OVERHEAD: usize = PAYLOAD_START + TAG_BYTES;
 const MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
-const MAX_JSON_INTEGER: u64 = (1 << 53) - 1;
 
 type SecretKey = Zeroizing<[u8; KEY_BYTES]>;
 
@@ -33,34 +33,6 @@ enum ExportError {
     InvalidPayload,
     RandomnessUnavailable,
     EncryptionFailed,
-}
-
-#[derive(Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct SyntheticVault {
-    format_version: u8,
-    vault_id: String,
-    export_counter: u64,
-    issued_at: u64,
-    // Nested records need a separately agreed schema before they can be restored.
-    projects: [(); 0],
-}
-
-impl SyntheticVault {
-    fn validate(&self) -> Result<(), ExportError> {
-        if self.format_version != 1
-            || self.vault_id.len() != 32
-            || !self
-                .vault_id
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            || !(1..=MAX_JSON_INTEGER).contains(&self.export_counter)
-            || self.issued_at > MAX_JSON_INTEGER
-        {
-            return Err(ExportError::InvalidPayload);
-        }
-        Ok(())
-    }
 }
 
 struct ExportRandomness {
@@ -93,9 +65,7 @@ impl ExportRandomness {
 }
 
 fn export(vault: &SyntheticVault, entropy: &SecretKey) -> Result<Vec<u8>, ExportError> {
-    vault.validate()?;
-    let mut payload = Zeroizing::new(Vec::new());
-    serde_json::to_writer(&mut *payload, vault).map_err(|_| ExportError::InvalidPayload)?;
+    let mut payload = vault.to_bytes()?;
     seal(&mut payload, entropy, ExportRandomness::generate()?)
 }
 
@@ -177,19 +147,7 @@ fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportEr
         )
         .map_err(|_| ExportError::AuthenticationFailed)?;
 
-    // Serde also accepts positional arrays for structs. The vault schema
-    // requires named fields so it can evolve independently of the envelope.
-    let first_token = payload
-        .iter()
-        .copied()
-        .find(|byte| !matches!(byte, b' ' | b'\t' | b'\r' | b'\n'));
-    if first_token != Some(b'{') {
-        return Err(ExportError::InvalidPayload);
-    }
-    let vault: SyntheticVault =
-        serde_json::from_slice(&payload).map_err(|_| ExportError::InvalidPayload)?;
-    vault.validate()?;
-    Ok(vault)
+    SyntheticVault::from_bytes(&payload)
 }
 
 fn cipher(key: &SecretKey) -> Aes256Gcm {
@@ -218,24 +176,6 @@ fn hmac_sha256(key: &[u8], chunks: &[&[u8]]) -> SecretKey {
     secret
 }
 
-#[test]
-fn exports_same_synthetic_vault_with_fresh_randomness() {
-    let vault = SyntheticVault {
-        format_version: 1,
-        vault_id: "0".repeat(32),
-        export_counter: 1,
-        issued_at: 0,
-        projects: [],
-    };
-    let entropy = Zeroizing::new([0x23; KEY_BYTES]);
-    let first = export(&vault, &entropy).expect("first export");
-    let second = export(&vault, &entropy).expect("second export");
-    assert_ne!(first, second);
-    for envelope in [first, second] {
-        let restored = open(&envelope, &entropy).expect("open synthetic vault");
-        assert!(restored == vault);
-    }
-}
-
+mod payload;
 mod recovery_phrase;
 mod tests;

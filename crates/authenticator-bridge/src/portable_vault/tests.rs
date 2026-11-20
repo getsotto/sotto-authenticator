@@ -19,8 +19,21 @@ fn node_entropy() -> SecretKey {
 }
 
 #[test]
+fn exports_same_synthetic_vault_with_fresh_randomness() {
+    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes()).unwrap();
+    let entropy = Zeroizing::new([0x23; KEY_BYTES]);
+    let first = export(&vault, &entropy).expect("first export");
+    let second = export(&vault, &entropy).expect("second export");
+    assert_ne!(first, second);
+    for envelope in [first, second] {
+        let restored = open(&envelope, &entropy).expect("open synthetic vault");
+        assert!(restored == vault);
+    }
+}
+
+#[test]
 fn a_reentered_recovery_phrase_opens_a_synthetic_export() {
-    let vault: SyntheticVault = serde_json::from_str(EMPTY_VAULT).unwrap();
+    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes()).unwrap();
     let (envelope, written_words) = {
         let phrase = RecoveryPhrase::generate().unwrap();
         let envelope = export(&vault, &phrase.entropy().unwrap()).unwrap();
