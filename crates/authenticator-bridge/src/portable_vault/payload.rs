@@ -88,13 +88,15 @@ impl SyntheticVault {
             return Err(ExportError::InvalidPayload);
         }
 
-        let mut ids = BTreeSet::new();
+        let mut project_ids = BTreeSet::new();
         for project in &self.projects.0 {
-            validate_record(&mut ids, &project.id, &project.name)?;
+            validate_record(&mut project_ids, &project.id, &project.name)?;
+            let mut instance_ids = BTreeSet::new();
             for instance in &project.instances.0 {
-                validate_record(&mut ids, &instance.id, &instance.name)?;
+                validate_record(&mut instance_ids, &instance.id, &instance.name)?;
+                let mut entry_ids = BTreeSet::new();
                 for entry in &instance.entries.0 {
-                    validate_record(&mut ids, &entry.id, &entry.label)?;
+                    validate_record(&mut entry_ids, &entry.id, &entry.label)?;
                 }
             }
         }

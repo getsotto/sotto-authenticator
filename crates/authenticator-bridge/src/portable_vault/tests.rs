@@ -303,7 +303,14 @@ fn populated_payload(projects: usize, instances: usize, entries: usize) -> serde
 
 #[test]
 fn round_trips_nested_projects_instances_and_entries() {
-    let original = populated_payload(2, 2, 3);
+    let mut original = populated_payload(2, 2, 3);
+    let repeated_id = original["projects"][0]["id"].clone();
+    // The same text can identify a project and its child records. A
+    // different project can also have an instance with that local ID.
+    original["projects"][0]["instances"][0]["id"] = repeated_id.clone();
+    original["projects"][0]["instances"][0]["entries"][0]["id"] = repeated_id.clone();
+    original["projects"][0]["instances"][1]["entries"][0]["id"] = repeated_id.clone();
+    original["projects"][1]["instances"][0]["id"] = repeated_id;
     let vault = SyntheticVault::from_bytes(original.to_string().as_bytes()).unwrap();
     let entropy = node_entropy();
     let envelope = export(&vault, &entropy).unwrap();
@@ -314,15 +321,25 @@ fn round_trips_nested_projects_instances_and_entries() {
 
 #[test]
 fn rejects_authenticated_invalid_nested_records() {
-    let original = populated_payload(2, 1, 1);
+    let original = populated_payload(2, 2, 2);
     let mut cases = Vec::new();
 
-    let mut duplicate = original.clone();
-    duplicate["projects"][1]["instances"][0]["entries"][0]["id"] =
-        original["projects"][0]["id"].clone();
+    let mut duplicate_project = original.clone();
+    duplicate_project["projects"][1]["id"] = original["projects"][0]["id"].clone();
+    cases.push(("duplicate projects", duplicate_project.to_string()));
+    let mut duplicate_instance = original.clone();
+    duplicate_instance["projects"][0]["instances"][1]["id"] =
+        original["projects"][0]["instances"][0]["id"].clone();
     cases.push((
-        "duplicate across record types and projects",
-        duplicate.to_string(),
+        "duplicate instances in one project",
+        duplicate_instance.to_string(),
+    ));
+    let mut duplicate_entry = original.clone();
+    duplicate_entry["projects"][0]["instances"][0]["entries"][1]["id"] =
+        original["projects"][0]["instances"][0]["entries"][0]["id"].clone();
+    cases.push((
+        "duplicate entries in one instance",
+        duplicate_entry.to_string(),
     ));
 
     let mut positional = original.clone();
