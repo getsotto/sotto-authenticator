@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
-use super::payload::SyntheticVault;
+use super::payload::{SyntheticVault, MAX_JSON_INTEGER};
 use super::recovery_phrase::RecoveryPhrase;
-use super::{open, ExportError};
+use super::{export, open, ExportError, SecretKey};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum RestoreHistory {
@@ -38,12 +38,29 @@ pub(super) enum ConfirmError {
     RollbackAcknowledgementRequired,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ReserveExportError {
+    NoActiveVault,
+    InvalidIssueDate,
+    CounterExhausted,
+}
+
+/// A snapshot with a counter already recorded in local history. Dropping it
+/// or failing to encrypt it leaves a gap, so a retry always gets a new counter.
+pub(super) struct ReservedExport(SyntheticVault);
+
+impl ReservedExport {
+    pub(super) fn seal(self, entropy: &SecretKey) -> Result<Vec<u8>, ExportError> {
+        export(&self.0, entropy)
+    }
+}
+
 pub(super) struct RestoreState {
     active: Option<SyntheticVault>,
     highest_counters: BTreeMap<String, u64>,
     // A private generation ties the preview to this state and invalidates it
     // after a replacement, even if the replacement has the same ID and counter.
-    active_generation: Rc<()>,
+    active_generation: Arc<()>,
 }
 
 impl RestoreState {
@@ -57,7 +74,7 @@ impl RestoreState {
         Self {
             active,
             highest_counters,
-            active_generation: Rc::new(()),
+            active_generation: Arc::new(()),
         }
     }
 
@@ -67,6 +84,33 @@ impl RestoreState {
 
     pub(super) fn highest_counter(&self, vault_id: &str) -> Option<u64> {
         self.highest_counters.get(vault_id).copied()
+    }
+
+    /// Reserve and snapshot under exclusive access. Encryption can happen
+    /// after the caller releases that access.
+    pub(super) fn reserve_export(
+        &mut self,
+        issued_at: u64,
+    ) -> Result<ReservedExport, ReserveExportError> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or(ReserveExportError::NoActiveVault)?;
+        if issued_at > MAX_JSON_INTEGER {
+            return Err(ReserveExportError::InvalidIssueDate);
+        }
+
+        let counter = self
+            .highest_counter(&active.vault_id)
+            .unwrap_or(active.export_counter)
+            .checked_add(1)
+            .filter(|&counter| counter <= MAX_JSON_INTEGER)
+            .ok_or(ReserveExportError::CounterExhausted)?;
+        let mut snapshot = active.clone();
+        snapshot.export_counter = counter;
+        snapshot.issued_at = issued_at;
+        record_counter(&mut self.highest_counters, &snapshot);
+        Ok(ReservedExport(snapshot))
     }
 
     pub(super) fn prepare_restore(
@@ -93,7 +137,7 @@ impl RestoreState {
             vault,
             preview,
             known_counter,
-            active_generation: Rc::clone(&self.active_generation),
+            active_generation: Arc::clone(&self.active_generation),
         })
     }
 }
@@ -104,7 +148,7 @@ pub(super) struct PendingRestore {
     vault: SyntheticVault,
     preview: RestorePreview,
     known_counter: Option<u64>,
-    active_generation: Rc<()>,
+    active_generation: Arc<()>,
 }
 
 impl PendingRestore {
@@ -119,7 +163,7 @@ impl PendingRestore {
         state: &mut RestoreState,
         confirmation: RestoreConfirmation,
     ) -> Result<(), ConfirmError> {
-        if !Rc::ptr_eq(&state.active_generation, &self.active_generation)
+        if !Arc::ptr_eq(&state.active_generation, &self.active_generation)
             || state.highest_counter(&self.vault.vault_id) != self.known_counter
         {
             return Err(ConfirmError::PreviewChanged);
@@ -134,7 +178,7 @@ impl PendingRestore {
         // implementation must commit the vault and counter in one transaction.
         record_counter(&mut state.highest_counters, &self.vault);
         state.active = Some(self.vault);
-        state.active_generation = Rc::new(());
+        state.active_generation = Arc::new(());
         Ok(())
     }
 }
@@ -155,15 +199,16 @@ fn requires_a_new_preview_when_counter_history_changes_without_a_replacement() {
     let envelope = export(&vault, &entropy).unwrap();
     // Public BIP-39 fixture for the all-zero entropy above.
     let phrase = format!("{}art", "abandon ".repeat(23));
-    let mut state = RestoreState::new(None, BTreeMap::from([(vault.vault_id.clone(), 6)]));
+    let mut active = vault.clone();
+    active.export_counter = 6;
+    let mut state = RestoreState::new(Some(active.clone()), BTreeMap::new());
     let pending = state.prepare_restore(&envelope, &phrase).unwrap();
 
-    // Model a counter reserved by a later export without replacing the vault.
-    state.highest_counters.insert(vault.vault_id.clone(), 7);
+    drop(state.reserve_export(1).unwrap());
     assert_eq!(
         pending.confirm(&mut state, RestoreConfirmation::Replace),
         Err(ConfirmError::PreviewChanged)
     );
-    assert!(state.active().is_none());
+    assert!(state.active() == Some(&active));
     assert_eq!(state.highest_counter(&vault.vault_id), Some(7));
 }

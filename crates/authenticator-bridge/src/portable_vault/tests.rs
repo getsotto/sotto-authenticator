@@ -695,3 +695,167 @@ fn a_preview_cannot_confirm_against_a_different_restore_state() {
     assert!(to.active().is_none());
     assert_eq!(to.highest_counter(id), None);
 }
+
+#[test]
+fn concurrent_exports_reserve_distinct_counters_for_the_same_vault() {
+    use restore::RestoreState;
+    use std::sync::{Barrier, Mutex};
+    use std::thread;
+
+    const WORKERS: usize = 8;
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let state = Mutex::new(RestoreState::new(
+        Some(restore_fixture(id, 6, 1)),
+        Default::default(),
+    ));
+    let start = Barrier::new(WORKERS);
+    let mut counters = thread::scope(|scope| {
+        let mut workers = Vec::new();
+        for worker in 0..WORKERS {
+            let state = &state;
+            let start = &start;
+            workers.push(scope.spawn(move || {
+                let issued_at = 1_700_000_000 + worker as u64;
+                start.wait();
+                let reservation = state.lock().unwrap().reserve_export(issued_at).unwrap();
+                let entropy = node_entropy();
+                let envelope = reservation.seal(&entropy).unwrap();
+                let reopened = open(&envelope, &entropy).unwrap();
+                assert_eq!(reopened.vault_id, id);
+                assert_eq!(reopened.issued_at, issued_at);
+                reopened.export_counter
+            }));
+        }
+        workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    counters.sort_unstable();
+    assert_eq!(counters, (7..=14).collect::<Vec<_>>());
+    let state = state.into_inner().unwrap();
+    assert_eq!(state.highest_counter(id), Some(14));
+    assert_eq!(state.active().unwrap().export_counter, 6);
+}
+
+#[test]
+fn export_after_rollback_uses_the_highest_counter_and_keeps_abandoned_gaps() {
+    use restore::{RestoreConfirmation, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let mut state = RestoreState::new(Some(restore_fixture(id, 10, 1)), Default::default());
+    let mut restored = restore_fixture(id, 7, 2);
+    let older = export(&restored, &entropy).unwrap();
+    state
+        .prepare_restore(&older, &phrase)
+        .unwrap()
+        .confirm(&mut state, RestoreConfirmation::ReplaceOlderOrEqual)
+        .unwrap();
+
+    drop(state.reserve_export(101).unwrap());
+    assert_eq!(state.highest_counter(id), Some(11));
+    let next = state.reserve_export(102).unwrap();
+    assert!(state.active() == Some(&restored));
+
+    restored.export_counter = 12;
+    restored.issued_at = 102;
+    let envelope = next.seal(&entropy).unwrap();
+    assert!(open(&envelope, &entropy).unwrap() == restored);
+    assert_eq!(state.highest_counter(id), Some(12));
+}
+
+#[test]
+fn reservation_keeps_the_selected_contents_across_a_later_replacement() {
+    use restore::{RestoreConfirmation, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let mut original = restore_fixture(id, 10, 1);
+    let mut state = RestoreState::new(Some(original.clone()), Default::default());
+    let reserved = state.reserve_export(101).unwrap();
+
+    let replacement = restore_fixture(id, 12, 2);
+    let incoming = export(&replacement, &entropy).unwrap();
+    state
+        .prepare_restore(&incoming, &phrase)
+        .unwrap()
+        .confirm(&mut state, RestoreConfirmation::Replace)
+        .unwrap();
+
+    original.export_counter = 11;
+    original.issued_at = 101;
+    let envelope = reserved.seal(&entropy).unwrap();
+    assert!(open(&envelope, &entropy).unwrap() == original);
+    assert!(state.active() == Some(&replacement));
+    assert_eq!(state.highest_counter(id), Some(12));
+}
+
+#[test]
+fn stops_reservations_after_the_largest_json_counter() {
+    use payload::MAX_JSON_INTEGER;
+    use restore::{ReserveExportError, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut state = RestoreState::new(
+        Some(restore_fixture(id, MAX_JSON_INTEGER - 1, 1)),
+        Default::default(),
+    );
+    let entropy = node_entropy();
+    let last = state.reserve_export(0).unwrap().seal(&entropy).unwrap();
+    assert_eq!(
+        open(&last, &entropy).unwrap().export_counter,
+        MAX_JSON_INTEGER
+    );
+    assert_eq!(
+        state.reserve_export(0).err(),
+        Some(ReserveExportError::CounterExhausted)
+    );
+    assert_eq!(state.highest_counter(id), Some(MAX_JSON_INTEGER));
+}
+
+#[test]
+fn invalid_export_requests_leave_counter_history_intact() {
+    use payload::MAX_JSON_INTEGER;
+    use restore::{ReserveExportError, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut empty = RestoreState::new(None, Default::default());
+    assert_eq!(
+        empty.reserve_export(0).err(),
+        Some(ReserveExportError::NoActiveVault)
+    );
+    assert_eq!(empty.highest_counter(id), None);
+
+    let mut state = RestoreState::new(Some(restore_fixture(id, 6, 1)), Default::default());
+    assert_eq!(
+        state.reserve_export(MAX_JSON_INTEGER + 1).err(),
+        Some(ReserveExportError::InvalidIssueDate)
+    );
+    assert_eq!(state.highest_counter(id), Some(6));
+}
+
+#[test]
+fn disconnected_export_histories_can_diverge_at_the_same_counter() {
+    use restore::{RestoreHistory, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let mut first = RestoreState::new(Some(restore_fixture(id, 6, 1)), Default::default());
+    let mut second = RestoreState::new(Some(restore_fixture(id, 6, 2)), Default::default());
+    let first_export = first.reserve_export(101).unwrap().seal(&entropy).unwrap();
+    let second_export = second.reserve_export(101).unwrap().seal(&entropy).unwrap();
+
+    let first_vault = open(&first_export, &entropy).unwrap();
+    let second_vault = open(&second_export, &entropy).unwrap();
+    assert_eq!(first_vault.export_counter, 7);
+    assert_eq!(second_vault.export_counter, 7);
+    // With equal counters and issue dates, the difference is in the contents.
+    assert!(first_vault != second_vault);
+    let pending = first.prepare_restore(&second_export, &phrase).unwrap();
+    assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
+    assert_eq!(pending.preview().issued_at, 101);
+}
