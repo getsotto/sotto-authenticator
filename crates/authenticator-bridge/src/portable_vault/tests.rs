@@ -479,7 +479,7 @@ fn synthetic_recovery_phrase(entropy: &SecretKey) -> String {
 
 #[test]
 fn previews_authenticated_metadata_against_history_for_the_same_vault() {
-    use restore::{preview_restore, RestoreHistory};
+    use restore::{RestoreHistory, RestoreState};
     use std::collections::BTreeMap;
 
     let vault_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -504,34 +504,38 @@ fn previews_authenticated_metadata_against_history_for_the_same_vault() {
         if let Some(counter) = known_counter {
             history.insert(vault_id.to_owned(), counter);
         }
-        let preview = preview_restore(&envelope, &phrase, &history).unwrap();
+        let state = RestoreState::new(None, history);
+        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        let preview = pending.preview();
         assert_eq!(preview.history, expected);
         assert_eq!(preview.vault_id, vault_id);
         assert_eq!(preview.issued_at, 1_700_000_000);
         assert_eq!(preview.export_counter, 7);
         // Opening or discarding a preview does not advance either counter.
-        assert_eq!(history.get(vault_id).copied(), known_counter);
-        assert_eq!(history.get(other_id), Some(&200));
+        drop(pending);
+        assert!(state.active().is_none());
+        assert_eq!(state.highest_counter(vault_id), known_counter);
+        assert_eq!(state.highest_counter(other_id), Some(200));
     }
 }
 
 #[test]
 fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
-    use restore::{preview_restore, PreviewError};
+    use restore::{PreviewError, RestoreState};
     use std::collections::BTreeMap;
 
-    let history = BTreeMap::new();
+    let state = RestoreState::new(None, BTreeMap::new());
     let entropy = node_entropy();
     let phrase = synthetic_recovery_phrase(&entropy);
     let wrong_phrase = synthetic_recovery_phrase(&Zeroizing::new([0xff; KEY_BYTES]));
     let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let envelope = export(&vault, &entropy).unwrap();
     assert_eq!(
-        preview_restore(&envelope, "invalid phrase", &history).err(),
+        state.prepare_restore(&envelope, "invalid phrase").err(),
         Some(PreviewError::InvalidPhrase)
     );
     assert_eq!(
-        preview_restore(&envelope, &wrong_phrase, &history).err(),
+        state.prepare_restore(&envelope, &wrong_phrase).err(),
         Some(PreviewError::InvalidExport(
             ExportError::AuthenticationFailed
         ))
@@ -540,7 +544,7 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
         let mut tampered = envelope.clone();
         tampered[offset] ^= 1;
         assert_eq!(
-            preview_restore(&tampered, &phrase, &history).err(),
+            state.prepare_restore(&tampered, &phrase).err(),
             Some(PreviewError::InvalidExport(
                 ExportError::AuthenticationFailed
             ))
@@ -553,7 +557,141 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
     )
     .unwrap();
     assert_eq!(
-        preview_restore(&invalid_payload, &phrase, &history).err(),
+        state.prepare_restore(&invalid_payload, &phrase).err(),
         Some(PreviewError::InvalidExport(ExportError::InvalidPayload))
     );
+}
+
+fn restore_fixture(vault_id: &str, counter: u64, projects: usize) -> SyntheticVault {
+    let mut json = populated_payload(projects, 1, 2);
+    json["vaultId"] = vault_id.into();
+    json["exportCounter"] = counter.into();
+    SyntheticVault::from_bytes(json.to_string().as_bytes(), MAX_PLAINTEXT_BYTES).unwrap()
+}
+
+#[test]
+fn confirms_a_replacement_and_records_its_counter() {
+    use restore::{RestoreConfirmation, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let other_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let current = restore_fixture(other_id, 55, 1);
+    let mut state = RestoreState::new(Some(current), Default::default());
+    let incoming = restore_fixture(id, 7, 2);
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let envelope = export(&incoming, &entropy).unwrap();
+    let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+    assert_eq!(state.active().unwrap().vault_id, other_id);
+    assert_eq!(state.highest_counter(id), None);
+
+    pending
+        .confirm(&mut state, RestoreConfirmation::Replace)
+        .unwrap();
+    assert!(state.active() == Some(&incoming));
+    assert_eq!(state.highest_counter(id), Some(7));
+    assert_eq!(state.highest_counter(other_id), Some(55));
+}
+
+#[test]
+fn cancelling_a_restore_leaves_an_existing_vault_and_counters_intact() {
+    use restore::RestoreState;
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut state = RestoreState::new(Some(restore_fixture(id, 11, 1)), Default::default());
+    let original = restore_fixture(id, 11, 1);
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let envelope = export(&restore_fixture(id, 12, 2), &entropy).unwrap();
+
+    // Dropping the prepared restore is the cancellation path.
+    drop(state.prepare_restore(&envelope, &phrase).unwrap());
+    assert!(state.active() == Some(&original));
+    assert_eq!(state.highest_counter(id), Some(11));
+
+    // A later confirmation still works against the same untouched state.
+    use restore::RestoreConfirmation;
+    state
+        .prepare_restore(&envelope, &phrase)
+        .unwrap()
+        .confirm(&mut state, RestoreConfirmation::Replace)
+        .unwrap();
+    assert_eq!(state.highest_counter(id), Some(12));
+}
+
+#[test]
+fn requires_acknowledgement_for_older_and_equal_restores_and_keeps_the_highest_counter() {
+    use restore::{ConfirmError, RestoreConfirmation, RestoreHistory, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    for counter in [9, 10] {
+        let original = restore_fixture(id, 10, 1);
+        let mut state = RestoreState::new(Some(restore_fixture(id, 10, 1)), Default::default());
+        let incoming = restore_fixture(id, counter, 2);
+        let envelope = export(&incoming, &entropy).unwrap();
+
+        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
+        assert_eq!(
+            pending.confirm(&mut state, RestoreConfirmation::Replace),
+            Err(ConfirmError::RollbackAcknowledgementRequired)
+        );
+        assert!(state.active() == Some(&original));
+        assert_eq!(state.highest_counter(id), Some(10));
+
+        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        pending
+            .confirm(&mut state, RestoreConfirmation::ReplaceOlderOrEqual)
+            .unwrap();
+        assert!(state.active() == Some(&incoming));
+        assert_eq!(state.highest_counter(id), Some(10));
+    }
+}
+
+#[test]
+fn invalidates_an_open_preview_after_a_different_replacement_with_the_same_counter() {
+    use restore::{ConfirmError, RestoreConfirmation, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut state = RestoreState::new(Some(restore_fixture(id, 7, 0)), Default::default());
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let first = export(&restore_fixture(id, 7, 1), &entropy).unwrap();
+    let replacement = restore_fixture(id, 7, 2);
+    let second = export(&replacement, &entropy).unwrap();
+
+    let stale = state.prepare_restore(&first, &phrase).unwrap();
+    state
+        .prepare_restore(&second, &phrase)
+        .unwrap()
+        .confirm(&mut state, RestoreConfirmation::ReplaceOlderOrEqual)
+        .unwrap();
+
+    assert_eq!(
+        stale.confirm(&mut state, RestoreConfirmation::ReplaceOlderOrEqual),
+        Err(ConfirmError::PreviewChanged)
+    );
+    assert!(state.active() == Some(&replacement));
+    assert_eq!(state.highest_counter(id), Some(7));
+}
+
+#[test]
+fn a_preview_cannot_confirm_against_a_different_restore_state() {
+    use restore::{ConfirmError, RestoreConfirmation, RestoreState};
+
+    let from = RestoreState::new(None, Default::default());
+    let mut to = RestoreState::new(None, Default::default());
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let envelope = export(&restore_fixture(id, 12, 1), &entropy).unwrap();
+    let pending = from.prepare_restore(&envelope, &phrase).unwrap();
+    assert_eq!(
+        pending.confirm(&mut to, RestoreConfirmation::Replace),
+        Err(ConfirmError::PreviewChanged)
+    );
+    assert!(to.active().is_none());
+    assert_eq!(to.highest_counter(id), None);
 }
