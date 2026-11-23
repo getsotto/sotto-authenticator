@@ -177,6 +177,8 @@ fn hmac_sha256(key: &[u8], chunks: &[&[u8]]) -> SecretKey {
     secret
 }
 
+#[cfg(test)]
+mod durability;
 mod payload;
 mod recovery_phrase;
 mod restore;
