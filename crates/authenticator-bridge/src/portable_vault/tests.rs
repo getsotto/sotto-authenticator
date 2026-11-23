@@ -14,7 +14,7 @@ const NODE_ENVELOPE: &str = concat!(
     "01a468cda4e879aa7c377ad63157f8c4f97dfa58426869cbdec8240a",
 );
 
-fn node_entropy() -> SecretKey {
+pub(super) fn node_entropy() -> SecretKey {
     Zeroizing::new(std::array::from_fn(|i| i as u8))
 }
 
@@ -468,7 +468,7 @@ fn applies_export_size_policy_separately_from_schema_validation() {
     );
 }
 
-fn synthetic_recovery_phrase(entropy: &SecretKey) -> String {
+pub(super) fn synthetic_recovery_phrase(entropy: &SecretKey) -> String {
     // This helper is only for the public, deterministic test entropy.
     bip39::Mnemonic::from_entropy(&entropy[..])
         .unwrap()
@@ -562,7 +562,7 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
     );
 }
 
-fn restore_fixture(vault_id: &str, counter: u64, projects: usize) -> SyntheticVault {
+pub(super) fn restore_fixture(vault_id: &str, counter: u64, projects: usize) -> SyntheticVault {
     let mut json = populated_payload(projects, 1, 2);
     json["vaultId"] = vault_id.into();
     json["exportCounter"] = counter.into();
