@@ -15,9 +15,9 @@ const MAX_PROJECTS: usize = 32;
 const MAX_INSTANCES_PER_PROJECT: usize = 16;
 const MAX_ENTRIES_PER_INSTANCE: usize = 64;
 const MAX_LABEL_BYTES: usize = 128;
-const MAX_JSON_INTEGER: u64 = (1 << 53) - 1;
+pub(super) const MAX_JSON_INTEGER: u64 = (1 << 53) - 1;
 
-#[derive(Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(super) struct SyntheticVault {
     format_version: u8,
@@ -27,7 +27,7 @@ pub(super) struct SyntheticVault {
     projects: Records<Project, MAX_PROJECTS>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Project {
     id: String,
@@ -35,7 +35,7 @@ struct Project {
     instances: Records<Instance, MAX_INSTANCES_PER_PROJECT>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Instance {
     id: String,
@@ -43,7 +43,7 @@ struct Instance {
     entries: Records<Entry, MAX_ENTRIES_PER_INSTANCE>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Entry {
     id: String,
@@ -165,7 +165,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for JsonObject<T> {
     }
 }
 
-#[derive(Serialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, PartialEq, Eq)]
 #[serde(transparent)]
 struct Records<T, const LIMIT: usize>(Vec<T>);
 
