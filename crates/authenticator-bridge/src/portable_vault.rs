@@ -1,7 +1,10 @@
 //! Synthetic implementation of the provisional portable vault envelope in ADR 0005.
 //! This module is compiled for Rust tests only, with no native bridge entry point.
 
-use aes_gcm::aead::{rand_core::RngCore, AeadInPlace, KeyInit, OsRng};
+use aes_gcm::aead::{
+    rand_core::{Error as RandomError, RngCore},
+    AeadInPlace, KeyInit, OsRng,
+};
 use aes_gcm::{Aes256Gcm, Nonce, Tag};
 use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
 use sha2::Sha256;
@@ -45,6 +48,13 @@ struct ExportRandomness {
 
 impl ExportRandomness {
     fn generate() -> Result<Self, ExportError> {
+        let mut rng = OsRng;
+        Self::from_source(|bytes| rng.try_fill_bytes(bytes))
+    }
+
+    fn from_source(
+        mut fill: impl FnMut(&mut [u8]) -> Result<(), RandomError>,
+    ) -> Result<Self, ExportError> {
         let mut inputs = Self {
             salt: [0; KEY_BYTES],
             wrap_nonce: [0; NONCE_BYTES],
@@ -57,17 +67,23 @@ impl ExportRandomness {
             &mut inputs.data_key[..],
             &mut inputs.payload_nonce[..],
         ] {
-            OsRng
-                .try_fill_bytes(bytes)
-                .map_err(|_| ExportError::RandomnessUnavailable)?;
+            fill(bytes).map_err(|_| ExportError::RandomnessUnavailable)?;
         }
         Ok(inputs)
     }
 }
 
 fn export(vault: &SyntheticVault, entropy: &SecretKey) -> Result<Vec<u8>, ExportError> {
+    export_with_randomness(vault, entropy, ExportRandomness::generate)
+}
+
+fn export_with_randomness(
+    vault: &SyntheticVault,
+    entropy: &SecretKey,
+    generate: impl FnOnce() -> Result<ExportRandomness, ExportError>,
+) -> Result<Vec<u8>, ExportError> {
     let mut payload = vault.to_bytes(MAX_PLAINTEXT_BYTES)?;
-    seal(&mut payload, entropy, ExportRandomness::generate()?)
+    seal(&mut payload, entropy, generate()?)
 }
 
 fn seal(
