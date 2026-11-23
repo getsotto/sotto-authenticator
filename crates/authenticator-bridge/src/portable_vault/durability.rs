@@ -14,7 +14,10 @@ use super::restore::{
     RestoreConfirmation, RestorePreview, RestoreState,
 };
 use super::tests::{node_entropy, restore_fixture, synthetic_recovery_phrase};
-use super::{export, open, ExportError, SecretKey, SyntheticVault};
+use super::{
+    export, open, ExportError, ExportRandomness, RandomError, SecretKey, SyntheticVault, KEY_BYTES,
+    NONCE_BYTES,
+};
 
 const FIXTURE_VAULT_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CHILD_DATABASE: &str = "SOTTO_DURABILITY_TEST_CHILD_DATABASE";
@@ -264,6 +267,55 @@ fn committed_reservations_survive_reopen_even_when_the_snapshot_is_abandoned() {
     let entropy = node_entropy();
     let envelope = reserve_durably(&mut db, 2).unwrap().seal(&entropy).unwrap();
     assert_eq!(open(&envelope, &entropy).unwrap().export_counter, 8);
+}
+
+#[test]
+fn failed_random_reads_keep_reserved_counters_after_reopen() {
+    use std::num::NonZeroU32;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("vault.sqlite");
+    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
+    seed_database(&path, &original).unwrap();
+    let entropy = node_entropy();
+    let read_lengths = [KEY_BYTES, NONCE_BYTES, KEY_BYTES, NONCE_BYTES];
+
+    for failed_read in 0..read_lengths.len() {
+        let mut db = open_database(&path).unwrap();
+        let reserved = reserve_durably(&mut db, 2).unwrap();
+        let mut reads = Vec::new();
+        let failed = reserved.seal_with_randomness(&entropy, || {
+            ExportRandomness::from_source(|bytes| {
+                let current_read = reads.len();
+                reads.push(bytes.len());
+                if current_read == failed_read {
+                    // A random source can write part of a buffer before failing.
+                    bytes[0] = 0xff;
+                    return Err(NonZeroU32::new(RandomError::CUSTOM_START).unwrap().into());
+                }
+                bytes.fill(0x42);
+                Ok(())
+            })
+        });
+        assert_eq!(failed, Err(ExportError::RandomnessUnavailable));
+        assert_eq!(reads, read_lengths[..=failed_read]);
+        drop(db);
+
+        let reopened = load_state(&open_database(&path).unwrap()).unwrap();
+        assert!(reopened.active() == Some(&original));
+        assert_eq!(
+            reopened.highest_counter(FIXTURE_VAULT_ID),
+            Some(7 + failed_read as u64)
+        );
+    }
+
+    let mut db = open_database(&path).unwrap();
+    let retry = reserve_durably(&mut db, 3).unwrap().seal(&entropy).unwrap();
+    let mut expected = original;
+    expected.export_counter = 11;
+    expected.issued_at = 3;
+    assert!(open(&retry, &entropy).unwrap() == expected);
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 11);
 }
 
 #[test]

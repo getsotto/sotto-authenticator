@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::payload::{SyntheticVault, MAX_JSON_INTEGER};
 use super::recovery_phrase::RecoveryPhrase;
-use super::{export, open, ExportError, SecretKey};
+use super::{export_with_randomness, open, ExportError, ExportRandomness, SecretKey};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum RestoreHistory {
@@ -51,7 +51,15 @@ pub(super) struct ReservedExport(SyntheticVault);
 
 impl ReservedExport {
     pub(super) fn seal(self, entropy: &SecretKey) -> Result<Vec<u8>, ExportError> {
-        export(&self.0, entropy)
+        self.seal_with_randomness(entropy, ExportRandomness::generate)
+    }
+
+    pub(super) fn seal_with_randomness(
+        self,
+        entropy: &SecretKey,
+        generate: impl FnOnce() -> Result<ExportRandomness, ExportError>,
+    ) -> Result<Vec<u8>, ExportError> {
+        export_with_randomness(&self.0, entropy, generate)
     }
 }
 
