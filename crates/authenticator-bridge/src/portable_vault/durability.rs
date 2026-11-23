@@ -47,8 +47,8 @@ fn fixture_key() -> SecretKey {
     SecretKey::new([0xee; 32])
 }
 
-fn seed_database(path: &Path, active: &SyntheticVault) -> Result<(), FixtureError> {
-    let mut db = open_database(path)?;
+fn initialise_database(path: &Path) -> rusqlite::Result<Connection> {
+    let db = open_database(path)?;
     db.execute_batch(
         "PRAGMA journal_mode = DELETE;
          CREATE TABLE active_vault (
@@ -60,6 +60,11 @@ fn seed_database(path: &Path, active: &SyntheticVault) -> Result<(), FixtureErro
              highest INTEGER NOT NULL CHECK (highest BETWEEN 1 AND 9007199254740991)
          );",
     )?;
+    Ok(db)
+}
+
+fn seed_database(path: &Path, active: &SyntheticVault) -> Result<(), FixtureError> {
+    let mut db = initialise_database(path)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     write_replacement(&tx, active, active.export_counter)?;
     tx.commit()?;
@@ -104,10 +109,10 @@ fn write_counter(tx: &Transaction<'_>, vault_id: &str, highest: u64) -> Result<(
     Ok(())
 }
 
-fn persisted_counter(db: &Connection) -> i64 {
+fn persisted_counter(db: &Connection, vault_id: &str) -> i64 {
     db.query_row(
         "SELECT highest FROM export_history WHERE vault_id = ?1",
-        [FIXTURE_VAULT_ID],
+        [vault_id],
         |row| row.get(0),
     )
     .unwrap()
@@ -224,6 +229,42 @@ fn independent_database_connections_reserve_distinct_counters() {
 }
 
 #[test]
+fn fresh_store_and_an_unrelated_vault_have_independent_history() {
+    use super::restore::RestoreHistory;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("vault.sqlite");
+    let other_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let first = restore_fixture(FIXTURE_VAULT_ID, 9, 1);
+    let second = restore_fixture(other_id, 3, 2);
+    let mut db = initialise_database(&path).unwrap();
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+
+    for incoming in [&first, &second] {
+        let tx = db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let state = load_state(&tx).unwrap();
+        let envelope = export(incoming, &entropy).unwrap();
+        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        assert_eq!(pending.preview().history, RestoreHistory::NoLocalHistory);
+        stage_confirmed_restore(&tx, incoming, RestoreConfirmation::Replace).unwrap();
+        tx.commit().unwrap();
+    }
+    drop(db);
+
+    let db = open_database(&path).unwrap();
+    let reopened = load_state(&db).unwrap();
+    assert!(reopened.active() == Some(&second));
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 9);
+    assert_eq!(persisted_counter(&db, other_id), 3);
+    let envelope = export(&first, &entropy).unwrap();
+    let pending = reopened.prepare_restore(&envelope, &phrase).unwrap();
+    assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
+}
+
+#[test]
 fn interrupted_replacement_recovers_both_vault_and_counter_on_reopen() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("vault.sqlite");
@@ -254,7 +295,7 @@ fn interrupted_replacement_recovers_both_vault_and_counter_on_reopen() {
     let mut db = open_database(&path).unwrap();
     let reopened = load_state(&db).unwrap();
     assert!(reopened.active() == Some(&original));
-    assert_eq!(persisted_counter(&db), 6);
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 6);
 
     let incoming = restore_fixture(FIXTURE_VAULT_ID, 9, 2);
     let tx = db
@@ -267,7 +308,7 @@ fn interrupted_replacement_recovers_both_vault_and_counter_on_reopen() {
     let db = open_database(&path).unwrap();
     let reopened = load_state(&db).unwrap();
     assert!(reopened.active() == Some(&incoming));
-    assert_eq!(persisted_counter(&db), 9);
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 9);
 }
 
 #[test]
@@ -287,7 +328,7 @@ fn committed_rollback_keeps_the_highest_counter_on_disk() {
 
     let mut db = open_database(&path).unwrap();
     assert!(load_state(&db).unwrap().active() == Some(&older));
-    assert_eq!(persisted_counter(&db), 10);
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 10);
     let entropy = node_entropy();
     let next = reserve_durably(&mut db, 1).unwrap().seal(&entropy).unwrap();
     assert_eq!(open(&next, &entropy).unwrap().export_counter, 11);
