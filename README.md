@@ -35,6 +35,11 @@ The Android app can be launched on a connected emulator with `adb install -r app
 
 Generated bindings are committed for review and reproducible native builds. Regenerate them only through the script. Native libraries and build outputs are generated locally and are not committed.
 
+After regenerating bindings and running both Rust mobile build scripts, run
+`./scripts/check-portable-vault-release.sh` to check that the provisional
+portable vault stays in Rust test builds. See the
+[release boundary findings](docs/engineering/portable-vault-release-boundary.md).
+
 ## License
 
 Licensed under Apache License 2.0. See [LICENSE](LICENSE).
