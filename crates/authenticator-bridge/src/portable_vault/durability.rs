@@ -10,8 +10,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 
 use super::payload::MAX_JSON_INTEGER;
 use super::restore::{
-    ConfirmError, PreviewError, ReserveExportError, ReservedExport, RestoreConfirmation,
-    RestoreState,
+    ConfirmError, PendingRestore, PreviewError, ReserveExportError, ReservedExport,
+    RestoreConfirmation, RestorePreview, RestoreState,
 };
 use super::tests::{node_entropy, restore_fixture, synthetic_recovery_phrase};
 use super::{export, open, ExportError, SecretKey, SyntheticVault};
@@ -58,7 +58,13 @@ fn initialise_database(path: &Path) -> rusqlite::Result<Connection> {
          CREATE TABLE export_history (
              vault_id TEXT PRIMARY KEY,
              highest INTEGER NOT NULL CHECK (highest BETWEEN 1 AND 9007199254740991)
-         );",
+         );
+         CREATE TABLE fixture_identity (
+             slot INTEGER PRIMARY KEY CHECK (slot = 1),
+             store_id BLOB NOT NULL,
+             revision INTEGER NOT NULL CHECK (typeof(revision) = 'integer' AND revision >= 0)
+         );
+         INSERT INTO fixture_identity (slot, store_id, revision) VALUES (1, randomblob(16), 0);",
     )?;
     Ok(db)
 }
@@ -130,6 +136,10 @@ fn write_replacement(
         [encrypted],
     )?;
     write_counter(tx, &vault.vault_id, highest)?;
+    tx.execute(
+        "UPDATE fixture_identity SET revision = revision + 1 WHERE slot = 1",
+        [],
+    )?;
     Ok(())
 }
 
@@ -152,28 +162,90 @@ fn reserve_durably(db: &mut Connection, issued_at: u64) -> Result<ReservedExport
     Ok(reservation)
 }
 
-fn stage_confirmed_restore(
-    tx: &Transaction<'_>,
-    incoming: &SyntheticVault,
-    confirmation: RestoreConfirmation,
-) -> Result<(), FixtureError> {
-    // Exercise the Rust confirmation rules inside this fixture transaction.
-    // Handling a preview displayed before the write transaction is client work.
-    let entropy = node_entropy();
-    let phrase = synthetic_recovery_phrase(&entropy);
-    let envelope = export(incoming, &entropy).map_err(FixtureError::Envelope)?;
-    let mut state = load_state(tx)?;
-    let pending = state
-        .prepare_restore(&envelope, &phrase)
-        .map_err(FixtureError::Preview)?;
-    pending
-        .confirm(&mut state, confirmation)
-        .map_err(FixtureError::Confirm)?;
-    let active = state.active().expect("confirmation installs a vault");
-    let highest = state
-        .highest_counter(&active.vault_id)
-        .expect("confirmation records its counter");
-    write_replacement(tx, active, highest)
+#[derive(PartialEq, Eq)]
+struct StoreStamp {
+    id: Vec<u8>,
+    revision: i64,
+    incoming_counter: Option<i64>,
+}
+
+fn store_stamp(tx: &Transaction<'_>, incoming_id: &str) -> rusqlite::Result<StoreStamp> {
+    tx.query_row(
+        "SELECT store_id, revision, (SELECT highest FROM export_history WHERE vault_id = ?1)
+         FROM fixture_identity WHERE slot = 1",
+        [incoming_id],
+        |row| {
+            Ok(StoreStamp {
+                id: row.get(0)?,
+                revision: row.get(1)?,
+                incoming_counter: row.get(2)?,
+            })
+        },
+    )
+}
+
+struct PendingFixtureRestore {
+    stamp: StoreStamp,
+    state: RestoreState,
+    pending: PendingRestore,
+}
+
+impl PendingFixtureRestore {
+    fn prepare(db: &mut Connection, incoming: &SyntheticVault) -> Result<Self, FixtureError> {
+        let entropy = node_entropy();
+        let phrase = synthetic_recovery_phrase(&entropy);
+        let envelope = export(incoming, &entropy).map_err(FixtureError::Envelope)?;
+
+        // Read the preview's active vault and the stamp from the same snapshot.
+        let tx = db.transaction()?;
+        let state = load_state(&tx)?;
+        let pending = state
+            .prepare_restore(&envelope, &phrase)
+            .map_err(FixtureError::Preview)?;
+        let stamp = store_stamp(&tx, &pending.preview().vault_id)?;
+        tx.commit()?;
+        Ok(Self {
+            stamp,
+            state,
+            pending,
+        })
+    }
+
+    fn preview(&self) -> &RestorePreview {
+        self.pending.preview()
+    }
+
+    fn confirm(
+        self,
+        db: &mut Connection,
+        confirmation: RestoreConfirmation,
+    ) -> Result<(), FixtureError> {
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.stage(&tx, confirmation)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    // The caller holds the write transaction from the recheck through commit.
+    // Keep staging separate so the interrupted-writer test can exit before commit.
+    fn stage(
+        mut self,
+        tx: &Transaction<'_>,
+        confirmation: RestoreConfirmation,
+    ) -> Result<(), FixtureError> {
+        if store_stamp(tx, &self.preview().vault_id)? != self.stamp {
+            return Err(FixtureError::Confirm(ConfirmError::PreviewChanged));
+        }
+        self.pending
+            .confirm(&mut self.state, confirmation)
+            .map_err(FixtureError::Confirm)?;
+        let active = self.state.active().expect("confirmation installs a vault");
+        let highest = self
+            .state
+            .highest_counter(&active.vault_id)
+            .expect("confirmation records its counter");
+        write_replacement(tx, active, highest)
+    }
 }
 
 #[test]
@@ -242,15 +314,11 @@ fn fresh_store_and_an_unrelated_vault_have_independent_history() {
     let phrase = synthetic_recovery_phrase(&entropy);
 
     for incoming in [&first, &second] {
-        let tx = db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .unwrap();
-        let state = load_state(&tx).unwrap();
-        let envelope = export(incoming, &entropy).unwrap();
-        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        let pending = PendingFixtureRestore::prepare(&mut db, incoming).unwrap();
         assert_eq!(pending.preview().history, RestoreHistory::NoLocalHistory);
-        stage_confirmed_restore(&tx, incoming, RestoreConfirmation::Replace).unwrap();
-        tx.commit().unwrap();
+        pending
+            .confirm(&mut db, RestoreConfirmation::Replace)
+            .unwrap();
     }
     drop(db);
 
@@ -270,6 +338,10 @@ fn interrupted_replacement_recovers_both_vault_and_counter_on_reopen() {
     let path = directory.path().join("vault.sqlite");
     let original = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
     seed_database(&path, &original).unwrap();
+    let incoming = restore_fixture(FIXTURE_VAULT_ID, 9, 2);
+    let mut db = open_database(&path).unwrap();
+    let pending = PendingFixtureRestore::prepare(&mut db, &incoming).unwrap();
+    drop(db);
 
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -297,12 +369,11 @@ fn interrupted_replacement_recovers_both_vault_and_counter_on_reopen() {
     assert!(reopened.active() == Some(&original));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 6);
 
-    let incoming = restore_fixture(FIXTURE_VAULT_ID, 9, 2);
-    let tx = db
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+    // The interrupted write also rolled back the revision. The preview still
+    // identifies the same database state after reopening.
+    pending
+        .confirm(&mut db, RestoreConfirmation::Replace)
         .unwrap();
-    stage_confirmed_restore(&tx, &incoming, RestoreConfirmation::Replace).unwrap();
-    tx.commit().unwrap();
     drop(db);
 
     let db = open_database(&path).unwrap();
@@ -319,11 +390,10 @@ fn committed_rollback_keeps_the_highest_counter_on_disk() {
     let older = restore_fixture(FIXTURE_VAULT_ID, 7, 2);
 
     let mut db = open_database(&path).unwrap();
-    let tx = db
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+    PendingFixtureRestore::prepare(&mut db, &older)
+        .unwrap()
+        .confirm(&mut db, RestoreConfirmation::ReplaceOlderOrEqual)
         .unwrap();
-    stage_confirmed_restore(&tx, &older, RestoreConfirmation::ReplaceOlderOrEqual).unwrap();
-    tx.commit().unwrap();
     drop(db);
 
     let mut db = open_database(&path).unwrap();
@@ -339,16 +409,93 @@ fn committed_rollback_keeps_the_highest_counter_on_disk() {
 fn interrupt_fixture_writer() {
     let path = PathBuf::from(std::env::var_os(CHILD_DATABASE).expect("fixture database path"));
     let mut db = open_database(&path).unwrap();
+    let pending =
+        PendingFixtureRestore::prepare(&mut db, &restore_fixture(FIXTURE_VAULT_ID, 9, 2)).unwrap();
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .unwrap();
-    stage_confirmed_restore(
-        &tx,
-        &restore_fixture(FIXTURE_VAULT_ID, 9, 2),
-        RestoreConfirmation::Replace,
-    )
-    .unwrap();
+    pending.stage(&tx, RestoreConfirmation::Replace).unwrap();
     tx.cache_flush().unwrap();
     // Exit without running Rust or SQLite destructors and without committing.
     std::process::exit(INTERRUPTED_EXIT);
+}
+
+#[test]
+fn a_committed_same_counter_replacement_requires_a_new_durable_preview() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("vault.sqlite");
+    seed_database(&path, &restore_fixture(FIXTURE_VAULT_ID, 7, 1)).unwrap();
+    let mut db = open_database(&path).unwrap();
+    let stale =
+        PendingFixtureRestore::prepare(&mut db, &restore_fixture(FIXTURE_VAULT_ID, 7, 2)).unwrap();
+
+    let replacement = restore_fixture(FIXTURE_VAULT_ID, 7, 3);
+    let mut writer = open_database(&path).unwrap();
+    PendingFixtureRestore::prepare(&mut writer, &replacement)
+        .unwrap()
+        .confirm(&mut writer, RestoreConfirmation::ReplaceOlderOrEqual)
+        .unwrap();
+
+    assert!(matches!(
+        stale.confirm(&mut db, RestoreConfirmation::ReplaceOlderOrEqual),
+        Err(FixtureError::Confirm(ConfirmError::PreviewChanged))
+    ));
+    assert!(load_state(&db).unwrap().active() == Some(&replacement));
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
+}
+
+#[test]
+fn a_committed_reservation_requires_a_new_durable_preview_for_that_vault() {
+    use super::restore::RestoreHistory;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("vault.sqlite");
+    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
+    seed_database(&path, &original).unwrap();
+    let mut db = open_database(&path).unwrap();
+    let incoming = restore_fixture(FIXTURE_VAULT_ID, 7, 2);
+    let stale = PendingFixtureRestore::prepare(&mut db, &incoming).unwrap();
+    assert_eq!(
+        stale.preview().history,
+        RestoreHistory::HigherCounterFreshnessUnknown
+    );
+
+    let mut writer = open_database(&path).unwrap();
+    drop(reserve_durably(&mut writer, 1).unwrap());
+
+    assert!(matches!(
+        stale.confirm(&mut db, RestoreConfirmation::Replace),
+        Err(FixtureError::Confirm(ConfirmError::PreviewChanged))
+    ));
+    let fresh = PendingFixtureRestore::prepare(&mut db, &incoming).unwrap();
+    assert_eq!(fresh.preview().history, RestoreHistory::OlderOrEqual);
+    assert!(matches!(
+        fresh.confirm(&mut db, RestoreConfirmation::Replace),
+        Err(FixtureError::Confirm(
+            ConfirmError::RollbackAcknowledgementRequired
+        ))
+    ));
+    assert!(load_state(&db).unwrap().active() == Some(&original));
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
+}
+
+#[test]
+fn durable_preview_cannot_authorise_a_different_database_with_the_same_metadata() {
+    let directory = tempfile::tempdir().unwrap();
+    let first = directory.path().join("first.sqlite");
+    let other = directory.path().join("other.sqlite");
+    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
+    seed_database(&first, &original).unwrap();
+    seed_database(&other, &original).unwrap();
+    let mut db = open_database(&first).unwrap();
+    let mut other = open_database(&other).unwrap();
+    let pending =
+        PendingFixtureRestore::prepare(&mut db, &restore_fixture(FIXTURE_VAULT_ID, 7, 2)).unwrap();
+
+    assert!(matches!(
+        pending.confirm(&mut other, RestoreConfirmation::Replace),
+        Err(FixtureError::Confirm(ConfirmError::PreviewChanged))
+    ));
+    assert!(load_state(&other).unwrap().active() == Some(&original));
+    assert_eq!(persisted_counter(&other, FIXTURE_VAULT_ID), 6);
 }
