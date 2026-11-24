@@ -24,6 +24,11 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   injects a partial failure at each of the four random reads. Each fails
   the export and keeps the reservation, and the next successful export opens
   with a new counter. [Phrase tests](../../crates/authenticator-bridge/src/portable_vault/recovery_phrase.rs) · [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
+- **Recovery rotation.** A host test seals a second export with a different
+  phrase. Each file opens with its own phrase. After restoring the newer
+  export, the older file still requires rollback acknowledgement and
+  restoring it preserves the highest counter.
+  [Restore tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Save retry.** A host test stages an export beside its destination. A
   partial write leaves the previous file intact. Retrying the same sealed
   bytes after reopening the counter store preserves the original counter.

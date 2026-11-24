@@ -669,6 +669,76 @@ pub(super) fn restore_fixture(vault_id: &str, counter: u64, projects: usize) -> 
 }
 
 #[test]
+fn recovery_rotation_preserves_old_exports_and_local_history() {
+    use restore::{ConfirmError, PreviewError, RestoreConfirmation, RestoreHistory, RestoreState};
+
+    let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let original = restore_fixture(id, 6, 1);
+    let mut source = RestoreState::new(Some(original.clone()), Default::default());
+    let old_entropy = node_entropy();
+    let new_entropy = Zeroizing::new([0xff; KEY_BYTES]);
+    let old_phrase = synthetic_recovery_phrase(&old_entropy);
+    let new_phrase = synthetic_recovery_phrase(&new_entropy);
+    let old_export = source
+        .reserve_export(1)
+        .unwrap()
+        .seal(&old_entropy)
+        .unwrap();
+    let new_export = source
+        .reserve_export(2)
+        .unwrap()
+        .seal(&new_entropy)
+        .unwrap();
+
+    let mut destination = RestoreState::new(None, Default::default());
+    for (envelope, wrong_phrase) in [(&old_export, &new_phrase), (&new_export, &old_phrase)] {
+        assert_eq!(
+            destination
+                .prepare_restore(envelope.as_slice(), wrong_phrase)
+                .err(),
+            Some(PreviewError::InvalidExport(
+                ExportError::AuthenticationFailed
+            ))
+        );
+    }
+    assert!(destination.active().is_none());
+    assert_eq!(destination.highest_counter(id), None);
+
+    let pending = destination
+        .prepare_restore(new_export.as_slice(), &new_phrase)
+        .unwrap();
+    assert_eq!(pending.preview().history, RestoreHistory::NoLocalHistory);
+    pending
+        .confirm(&mut destination, RestoreConfirmation::Replace)
+        .unwrap();
+    let mut expected = original;
+    expected.export_counter = 8;
+    expected.issued_at = 2;
+    assert!(destination.active() == Some(&expected));
+    assert_eq!(destination.highest_counter(id), Some(8));
+
+    let older = destination
+        .prepare_restore(old_export.as_slice(), &old_phrase)
+        .unwrap();
+    assert_eq!(older.preview().export_counter, 7);
+    assert_eq!(older.preview().history, RestoreHistory::OlderOrEqual);
+    assert_eq!(
+        older.confirm(&mut destination, RestoreConfirmation::Replace),
+        Err(ConfirmError::RollbackAcknowledgementRequired)
+    );
+    assert!(destination.active() == Some(&expected));
+    destination
+        .prepare_restore(old_export.as_slice(), &old_phrase)
+        .unwrap()
+        .confirm(&mut destination, RestoreConfirmation::ReplaceOlderOrEqual)
+        .unwrap();
+    expected.export_counter = 7;
+    expected.issued_at = 1;
+    assert!(destination.active() == Some(&expected));
+    assert_eq!(destination.highest_counter(id), Some(8));
+}
+
+#[test]
 fn confirms_a_replacement_and_records_its_counter() {
     use restore::{RestoreConfirmation, RestoreState};
 
