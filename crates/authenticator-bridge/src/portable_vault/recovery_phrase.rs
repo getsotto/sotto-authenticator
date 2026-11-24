@@ -5,6 +5,8 @@ use zeroize::Zeroizing;
 use super::{SecretKey, KEY_BYTES};
 
 const WORD_COUNT: usize = 24;
+// Leave room for pasted line breaks and spacing while bounding parser work.
+const MAX_PHRASE_BYTES: usize = 512;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum RecoveryPhraseError {
@@ -35,9 +37,10 @@ impl RecoveryPhrase {
     pub(super) fn parse(input: &str) -> Result<Self, RecoveryPhraseError> {
         // The library accepts broader whitespace and other word counts. Check
         // Sotto's ASCII grammar before the library can interpret the input.
-        if !input
-            .bytes()
-            .all(|byte| matches!(byte, b'a'..=b'z' | b' ' | b'\t' | b'\r' | b'\n'))
+        if input.len() > MAX_PHRASE_BYTES
+            || !input
+                .bytes()
+                .all(|byte| matches!(byte, b'a'..=b'z' | b' ' | b'\t' | b'\r' | b'\n'))
             || input.split_ascii_whitespace().take(WORD_COUNT + 1).count() != WORD_COUNT
         {
             return Err(RecoveryPhraseError::InvalidPhrase);
@@ -123,6 +126,32 @@ mod tests {
         let mixed = format!("\r\n{} \t", expected.replace(' ', " \t\r\n"));
         let parsed = RecoveryPhrase::parse(&mixed).unwrap();
         assert!(parsed.words().eq(expected.split(' ')));
+    }
+
+    #[test]
+    fn bounds_phrase_input_including_whitespace() {
+        let longest_word = Language::English
+            .word_list()
+            .iter()
+            .map(|word| word.len())
+            .max()
+            .unwrap();
+        // All generated phrases fit with a single space between words.
+        assert!(longest_word * WORD_COUNT + WORD_COUNT - 1 <= MAX_PHRASE_BYTES);
+
+        let expected = zero_entropy_phrase();
+        let mut input = format!(
+            "{}{}",
+            " ".repeat(MAX_PHRASE_BYTES - expected.len()),
+            expected
+        );
+        let parsed = RecoveryPhrase::parse(&input).unwrap();
+        assert!(parsed.words().eq(expected.split(' ')));
+        input.push('\n');
+        assert_eq!(
+            RecoveryPhrase::parse(&input).err(),
+            Some(RecoveryPhraseError::InvalidPhrase)
+        );
     }
 
     #[test]
