@@ -505,7 +505,7 @@ fn previews_authenticated_metadata_against_history_for_the_same_vault() {
             history.insert(vault_id.to_owned(), counter);
         }
         let state = RestoreState::new(None, history);
-        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
         let preview = pending.preview();
         assert_eq!(preview.history, expected);
         assert_eq!(preview.vault_id, vault_id);
@@ -520,6 +520,64 @@ fn previews_authenticated_metadata_against_history_for_the_same_vault() {
 }
 
 #[test]
+fn restore_reader_stops_at_the_first_byte_over_the_limit() {
+    use restore::{PreviewError, RestoreState};
+    use std::io::{self, Read};
+
+    let state = RestoreState::new(None, Default::default());
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let mut payload = EMPTY_VAULT.as_bytes().to_vec();
+    payload.resize(MAX_PLAINTEXT_BYTES, b' ');
+    let envelope = seal(
+        &mut payload,
+        &entropy,
+        ExportRandomness::generate().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(envelope.len(), MAX_ENVELOPE_BYTES);
+
+    let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
+    assert_eq!(pending.preview().export_counter, 1);
+
+    let mut trailing = io::repeat(0).take(64);
+    let oversized = envelope.as_slice().chain(&mut trailing);
+    assert_eq!(
+        state.prepare_restore(oversized, &phrase).err(),
+        Some(PreviewError::InvalidExport(ExportError::InvalidSize))
+    );
+    assert_eq!(trailing.limit(), 63);
+}
+
+#[test]
+fn restore_reader_returns_no_preview_when_the_stream_fails_before_eof() {
+    use restore::{PreviewError, RestoreState};
+    use std::io::{self, Read};
+
+    struct FailingReader;
+
+    impl Read for FailingReader {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("synthetic read failure"))
+        }
+    }
+
+    let active = restore_fixture("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 7, 1);
+    let state = RestoreState::new(Some(active.clone()), Default::default());
+    let phrase = synthetic_recovery_phrase(&node_entropy());
+    let envelope = HEXLOWER.decode(NODE_ENVELOPE.as_bytes()).unwrap();
+    // A complete authentic envelope still needs EOF before it can be previewed.
+    let reader = envelope.as_slice().chain(FailingReader);
+
+    assert_eq!(
+        state.prepare_restore(reader, &phrase).err(),
+        Some(PreviewError::ReadFailed)
+    );
+    assert!(state.active() == Some(&active));
+    assert_eq!(state.highest_counter(&active.vault_id), Some(7));
+}
+
+#[test]
 fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
     use restore::{PreviewError, RestoreState};
     use std::collections::BTreeMap;
@@ -531,11 +589,15 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
     let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let envelope = export(&vault, &entropy).unwrap();
     assert_eq!(
-        state.prepare_restore(&envelope, "invalid phrase").err(),
+        state
+            .prepare_restore(envelope.as_slice(), "invalid phrase")
+            .err(),
         Some(PreviewError::InvalidPhrase)
     );
     assert_eq!(
-        state.prepare_restore(&envelope, &wrong_phrase).err(),
+        state
+            .prepare_restore(envelope.as_slice(), &wrong_phrase)
+            .err(),
         Some(PreviewError::InvalidExport(
             ExportError::AuthenticationFailed
         ))
@@ -544,7 +606,7 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
         let mut tampered = envelope.clone();
         tampered[offset] ^= 1;
         assert_eq!(
-            state.prepare_restore(&tampered, &phrase).err(),
+            state.prepare_restore(tampered.as_slice(), &phrase).err(),
             Some(PreviewError::InvalidExport(
                 ExportError::AuthenticationFailed
             ))
@@ -557,7 +619,9 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
     )
     .unwrap();
     assert_eq!(
-        state.prepare_restore(&invalid_payload, &phrase).err(),
+        state
+            .prepare_restore(invalid_payload.as_slice(), &phrase)
+            .err(),
         Some(PreviewError::InvalidExport(ExportError::InvalidPayload))
     );
 }
@@ -581,7 +645,7 @@ fn confirms_a_replacement_and_records_its_counter() {
     let entropy = node_entropy();
     let phrase = synthetic_recovery_phrase(&entropy);
     let envelope = export(&incoming, &entropy).unwrap();
-    let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+    let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
     assert_eq!(state.active().unwrap().vault_id, other_id);
     assert_eq!(state.highest_counter(id), None);
 
@@ -605,14 +669,14 @@ fn cancelling_a_restore_leaves_an_existing_vault_and_counters_intact() {
     let envelope = export(&restore_fixture(id, 12, 2), &entropy).unwrap();
 
     // Dropping the prepared restore is the cancellation path.
-    drop(state.prepare_restore(&envelope, &phrase).unwrap());
+    drop(state.prepare_restore(envelope.as_slice(), &phrase).unwrap());
     assert!(state.active() == Some(&original));
     assert_eq!(state.highest_counter(id), Some(11));
 
     // A later confirmation still works against the same untouched state.
     use restore::RestoreConfirmation;
     state
-        .prepare_restore(&envelope, &phrase)
+        .prepare_restore(envelope.as_slice(), &phrase)
         .unwrap()
         .confirm(&mut state, RestoreConfirmation::Replace)
         .unwrap();
@@ -632,7 +696,7 @@ fn requires_acknowledgement_for_older_and_equal_restores_and_keeps_the_highest_c
         let incoming = restore_fixture(id, counter, 2);
         let envelope = export(&incoming, &entropy).unwrap();
 
-        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
         assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
         assert_eq!(
             pending.confirm(&mut state, RestoreConfirmation::Replace),
@@ -641,7 +705,7 @@ fn requires_acknowledgement_for_older_and_equal_restores_and_keeps_the_highest_c
         assert!(state.active() == Some(&original));
         assert_eq!(state.highest_counter(id), Some(10));
 
-        let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+        let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
         pending
             .confirm(&mut state, RestoreConfirmation::ReplaceOlderOrEqual)
             .unwrap();
@@ -662,9 +726,9 @@ fn invalidates_an_open_preview_after_a_different_replacement_with_the_same_count
     let replacement = restore_fixture(id, 7, 2);
     let second = export(&replacement, &entropy).unwrap();
 
-    let stale = state.prepare_restore(&first, &phrase).unwrap();
+    let stale = state.prepare_restore(first.as_slice(), &phrase).unwrap();
     state
-        .prepare_restore(&second, &phrase)
+        .prepare_restore(second.as_slice(), &phrase)
         .unwrap()
         .confirm(&mut state, RestoreConfirmation::ReplaceOlderOrEqual)
         .unwrap();
@@ -687,7 +751,7 @@ fn a_preview_cannot_confirm_against_a_different_restore_state() {
     let entropy = node_entropy();
     let phrase = synthetic_recovery_phrase(&entropy);
     let envelope = export(&restore_fixture(id, 12, 1), &entropy).unwrap();
-    let pending = from.prepare_restore(&envelope, &phrase).unwrap();
+    let pending = from.prepare_restore(envelope.as_slice(), &phrase).unwrap();
     assert_eq!(
         pending.confirm(&mut to, RestoreConfirmation::Replace),
         Err(ConfirmError::PreviewChanged)
@@ -749,7 +813,7 @@ fn export_after_rollback_uses_the_highest_counter_and_keeps_abandoned_gaps() {
     let mut restored = restore_fixture(id, 7, 2);
     let older = export(&restored, &entropy).unwrap();
     state
-        .prepare_restore(&older, &phrase)
+        .prepare_restore(older.as_slice(), &phrase)
         .unwrap()
         .confirm(&mut state, RestoreConfirmation::ReplaceOlderOrEqual)
         .unwrap();
@@ -780,7 +844,7 @@ fn reservation_keeps_the_selected_contents_across_a_later_replacement() {
     let replacement = restore_fixture(id, 12, 2);
     let incoming = export(&replacement, &entropy).unwrap();
     state
-        .prepare_restore(&incoming, &phrase)
+        .prepare_restore(incoming.as_slice(), &phrase)
         .unwrap()
         .confirm(&mut state, RestoreConfirmation::Replace)
         .unwrap();
@@ -855,7 +919,9 @@ fn disconnected_export_histories_can_diverge_at_the_same_counter() {
     assert_eq!(second_vault.export_counter, 7);
     // With equal counters and issue dates, the difference is in the contents.
     assert!(first_vault != second_vault);
-    let pending = first.prepare_restore(&second_export, &phrase).unwrap();
+    let pending = first
+        .prepare_restore(second_export.as_slice(), &phrase)
+        .unwrap();
     assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
     assert_eq!(pending.preview().issued_at, 101);
 }

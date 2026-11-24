@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::sync::Arc;
 
 use super::payload::{SyntheticVault, MAX_JSON_INTEGER};
 use super::recovery_phrase::RecoveryPhrase;
-use super::{export_with_randomness, open, ExportError, ExportRandomness, SecretKey};
+use super::{
+    export_with_randomness, open, ExportError, ExportRandomness, SecretKey, MAX_ENVELOPE_BYTES,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum RestoreHistory {
@@ -23,6 +26,7 @@ pub(super) struct RestorePreview {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PreviewError {
     InvalidPhrase,
+    ReadFailed,
     InvalidExport(ExportError),
 }
 
@@ -123,12 +127,19 @@ impl RestoreState {
 
     pub(super) fn prepare_restore(
         &self,
-        envelope: &[u8],
+        reader: impl Read,
         phrase: &str,
     ) -> Result<PendingRestore, PreviewError> {
         let phrase = RecoveryPhrase::parse(phrase).map_err(|_| PreviewError::InvalidPhrase)?;
         let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
-        let vault = open(envelope, &entropy).map_err(PreviewError::InvalidExport)?;
+        // Let open reject one extra byte as oversized. Capping at exactly the
+        // limit would make an authentic prefix look like a complete file.
+        let mut envelope = Vec::new();
+        reader
+            .take((MAX_ENVELOPE_BYTES + 1) as u64)
+            .read_to_end(&mut envelope)
+            .map_err(|_| PreviewError::ReadFailed)?;
+        let vault = open(&envelope, &entropy).map_err(PreviewError::InvalidExport)?;
         let known_counter = self.highest_counter(&vault.vault_id);
         let history = match known_counter {
             None => RestoreHistory::NoLocalHistory,
@@ -210,7 +221,7 @@ fn requires_a_new_preview_when_counter_history_changes_without_a_replacement() {
     let mut active = vault.clone();
     active.export_counter = 6;
     let mut state = RestoreState::new(Some(active.clone()), BTreeMap::new());
-    let pending = state.prepare_restore(&envelope, &phrase).unwrap();
+    let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
 
     drop(state.reserve_export(1).unwrap());
     assert_eq!(

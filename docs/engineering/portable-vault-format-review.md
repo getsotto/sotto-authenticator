@@ -13,6 +13,10 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   the same data key. The public Rust suite reproduces the empty-vault
   envelope byte for byte and tests populated round trips and rejection of
   the alternate wrapper. [Envelope and payload tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
+- **Bounded restore reads.** The Rust preview accepts a valid envelope at the
+  provisional limit. It stops after the first byte over the limit and
+  rejects read failures even after receiving a valid envelope prefix.
+  [Restore reader tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Recovery and failed exports.** Rust matches a public BIP-39 fixture
   and reopens an export using a re-entered phrase. The host SQLite fixture
   injects a partial failure at each of the four random reads. Each fails
@@ -40,8 +44,8 @@ cargo test -p authenticator-bridge --locked portable_vault
    payload as intended? What key and nonce usage limits should apply across
    repeated exports and retries?
 2. Which schema and size limits are appropriate for supported mobile
-   devices? How should clients reject an oversized file before buffering it
-   and report authenticated payload errors?
+   devices? How should mobile file pickers apply those limits before
+   buffering, and how should clients report authenticated payload errors?
 3. What should users see when local history is missing, stale or divergent?
    What mobile storage evidence is needed for atomic replacement and
    interrupted writes?
