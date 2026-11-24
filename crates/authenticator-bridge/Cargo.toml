@@ -25,3 +25,4 @@ zeroize = "1"
 bip39 = { version = "3.0.0", default-features = false, features = ["zeroize"] }
 rusqlite = { version = "0.43.0", default-features = false, features = ["bundled"] }
 tempfile = "3"
+zeroize = { version = "1", features = ["serde"] }

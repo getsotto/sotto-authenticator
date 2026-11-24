@@ -31,7 +31,7 @@ pub(super) struct SyntheticVault {
 #[serde(deny_unknown_fields)]
 struct Project {
     id: String,
-    name: String,
+    name: RecordText,
     instances: Records<Instance, MAX_INSTANCES_PER_PROJECT>,
 }
 
@@ -39,7 +39,7 @@ struct Project {
 #[serde(deny_unknown_fields)]
 struct Instance {
     id: String,
-    name: String,
+    name: RecordText,
     entries: Records<Entry, MAX_ENTRIES_PER_INSTANCE>,
 }
 
@@ -47,7 +47,40 @@ struct Instance {
 #[serde(deny_unknown_fields)]
 struct Entry {
     id: String,
-    label: String,
+    label: RecordText,
+}
+
+// Wrap each string as it is decoded so completed fields are cleared even if
+// a later field prevents the record from being constructed.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(transparent)]
+struct RecordText(Zeroizing<String>);
+
+impl PartialEq for RecordText {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+
+impl Eq for RecordText {}
+
+#[test]
+fn decoded_names_and_labels_use_clearing_buffers() {
+    use super::tests::restore_fixture;
+    use zeroize::{Zeroize, ZeroizeOnDrop};
+
+    fn check_buffer(text: &mut (impl Zeroize + ZeroizeOnDrop + AsRef<str>)) {
+        assert!(!text.as_ref().is_empty());
+        text.zeroize();
+        assert!(text.as_ref().is_empty());
+    }
+
+    let mut vault = restore_fixture("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1, 1);
+    let project = &mut vault.projects.0[0];
+    check_buffer(&mut project.name.0);
+    let instance = &mut project.instances.0[0];
+    check_buffer(&mut instance.name.0);
+    check_buffer(&mut instance.entries.0[0].label.0);
 }
 
 impl SyntheticVault {
@@ -114,9 +147,9 @@ fn valid_id(id: &str) -> bool {
 fn validate_record<'a>(
     ids: &mut BTreeSet<&'a str>,
     id: &'a str,
-    label: &str,
+    label: &RecordText,
 ) -> Result<(), ExportError> {
-    if !valid_id(id) || !ids.insert(id) || label.len() > MAX_LABEL_BYTES {
+    if !valid_id(id) || !ids.insert(id) || label.0.len() > MAX_LABEL_BYTES {
         return Err(ExportError::InvalidPayload);
     }
     Ok(())
