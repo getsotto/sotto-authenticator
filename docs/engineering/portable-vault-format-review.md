@@ -24,6 +24,11 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   injects a partial failure at each of the four random reads. Each fails
   the export and keeps the reservation, and the next successful export opens
   with a new counter. [Phrase tests](../../crates/authenticator-bridge/src/portable_vault/recovery_phrase.rs) · [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
+- **Recovery phrase input.** The prototype rejects inputs over 512 bytes
+  before scanning them. This includes whitespace and leaves room for every
+  generated 24-word English phrase. Native input controls and paste
+  behaviour still need review.
+  [Phrase tests](../../crates/authenticator-bridge/src/portable_vault/recovery_phrase.rs)
 - **Recovery rotation.** A host test seals a second export with a different
   phrase. Each file opens with its own phrase. After restoring the newer
   export, the older file still requires rollback acknowledgement and
