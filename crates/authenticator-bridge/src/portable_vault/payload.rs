@@ -21,6 +21,7 @@ pub(super) const MAX_JSON_INTEGER: u64 = (1 << 53) - 1;
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(super) struct SyntheticVault {
     format_version: u8,
+    #[serde(deserialize_with = "deserialize_id")]
     pub(super) vault_id: String,
     pub(super) export_counter: u64,
     pub(super) issued_at: u64,
@@ -30,6 +31,7 @@ pub(super) struct SyntheticVault {
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Project {
+    #[serde(deserialize_with = "deserialize_id")]
     id: String,
     name: RecordText,
     instances: Records<Instance, MAX_INSTANCES_PER_PROJECT>,
@@ -38,6 +40,7 @@ struct Project {
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Instance {
+    #[serde(deserialize_with = "deserialize_id")]
     id: String,
     name: RecordText,
     entries: Records<Entry, MAX_ENTRIES_PER_INSTANCE>,
@@ -46,6 +49,7 @@ struct Instance {
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Entry {
+    #[serde(deserialize_with = "deserialize_id")]
     id: String,
     label: RecordText,
 }
@@ -176,6 +180,60 @@ fn valid_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn deserialize_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    struct IdVisitor;
+
+    impl Visitor<'_> for IdVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an identifier of 32 lowercase hexadecimal characters")
+        }
+
+        fn visit_str<E: de::Error>(self, id: &str) -> Result<String, E> {
+            if !valid_id(id) {
+                return Err(E::custom("invalid vault or record identifier"));
+            }
+            Ok(id.to_owned())
+        }
+    }
+
+    deserializer.deserialize_str(IdVisitor)
+}
+
+#[test]
+fn deserialisation_rejects_invalid_identifiers_at_each_record_level() {
+    let valid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    for invalid in [
+        "a".repeat(31),
+        "a".repeat(33),
+        "A".repeat(32),
+        "é".repeat(16),
+    ] {
+        assert!(serde_json::from_value::<SyntheticVault>(serde_json::json!({
+            "formatVersion": 1, "vaultId": invalid, "exportCounter": 1, "issuedAt": 0,
+            "projects": []
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<Project>(serde_json::json!({
+            "id": invalid, "name": "", "instances": []
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<Instance>(serde_json::json!({
+            "id": invalid, "name": "", "entries": []
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<Entry>(serde_json::json!({
+            "id": invalid, "label": ""
+        }))
+        .is_err());
+    }
+
+    let escaped = format!(r#"{{"id":"\u0061{}","label":""}}"#, &valid[1..]);
+    let entry: Entry = serde_json::from_str(&escaped).unwrap();
+    assert_eq!(entry.id, valid);
 }
 
 fn validate_record_id<'a>(ids: &mut BTreeSet<&'a str>, id: &'a str) -> Result<(), ExportError> {
