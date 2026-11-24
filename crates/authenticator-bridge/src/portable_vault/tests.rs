@@ -85,6 +85,41 @@ fn matches_independent_envelope_and_key_derivation() {
 }
 
 #[test]
+fn matches_the_independent_populated_vault_envelope() {
+    // The same ID appears in all three record types. The label includes a
+    // multibyte character and JSON escapes to exercise the encoded bytes.
+    let json = r#"{"formatVersion":1,"vaultId":"00000000000000000000000000000000","exportCounter":1,"issuedAt":0,"projects":[{"id":"00000000000000000000000000000001","name":"synthetic project","instances":[{"id":"00000000000000000000000000000001","name":"synthetic instance","entries":[{"id":"00000000000000000000000000000001","label":"Café\n\"test\""}]}]}]}"#;
+    let expected = HEXLOWER
+        .decode(concat!(
+            "534f54560101000011111111111111111111111111111111111111111111111111111111111111112121212121212121",
+            "21212121bb786fffcbeb87a9c68a3331591ee73c9e57f0e8ed81698e146d361c655bf2f4047f79080572a9691229faf8",
+            "c247bc6141414141414141414141414145e811d6c7ced44b073202ad6c1aa1772e8b3a0c05ba8a93a7828d9da112ae9d",
+            "f0a2255484d362c5520a4105985fd8655e4aa5c2e419d2dcbf591c415a270c82636b3ad4472320b76db38c6df619a813",
+            "e27bf20841a6fbe2c30d71aa5a8324f7320390f84612a91ba87f5da3385da265212159cf63abc8c8b3f0d0f754e47052",
+            "d183f5fd057d2a5007f0b3ea83f65dc28ef80d51e6303553282885428ac6d93ef2dbbad61f41e06a041248c32e332083",
+            "48c8f2a28bf123f30bd790c6b55eb2dc02f252b2d57491b25a44436e0ab7eecd6e5ae8a1f461b9940725a5179845eec7",
+            "eee6d2d957fb8afe4199588b6e2ae47554613f22d44a0cf07fbdb41139db5bfe87a783fccf9eb76ba923a551457967fb",
+            "b636779ed09549cdbe8a9667cb24b0c6c3b2a42c5ff71d9a0c128e82b947828c65e90c35dd3f0ed290580b42a3f12006",
+            "a26629ede75bdd0a34380e63245aeb8ede1e3454220919189f45e83f1b088af8f3bf544cad",
+        ).as_bytes())
+        .unwrap();
+    let entropy = node_entropy();
+    let vault = SyntheticVault::from_bytes(json.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
+    let mut payload = vault.to_bytes(MAX_PLAINTEXT_BYTES).unwrap();
+    assert_eq!(&payload[..], json.as_bytes());
+
+    // Public fixed inputs used by the independent Node.js and Python fixture.
+    let randomness = ExportRandomness {
+        salt: [0x11; KEY_BYTES],
+        wrap_nonce: [0x21; NONCE_BYTES],
+        data_key: Zeroizing::new([0x31; KEY_BYTES]),
+        payload_nonce: [0x41; NONCE_BYTES],
+    };
+    assert_eq!(seal(&mut payload, &entropy, randomness).unwrap(), expected);
+    assert!(open(&expected, &entropy).unwrap() == vault);
+}
+
+#[test]
 fn rejects_a_valid_replacement_wrapper_for_the_same_data_key() {
     let entropy = node_entropy();
     let data_key_bytes = [0x21; KEY_BYTES];
