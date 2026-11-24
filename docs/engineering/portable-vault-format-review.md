@@ -49,6 +49,8 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   the previous vault and counter after an uncommitted writer exits.
   A fresh database also accepts a saved synthetic export and retains the
   restored records and counter after confirmation and reopening.
+  Invalid file imports into a populated database preserve its existing
+  records, counter and revision after reopening.
   [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
 - **Release boundary.** The mobile artefact and binding checks showed that
   the portable vault prototype stayed in Rust tests. The existing native
