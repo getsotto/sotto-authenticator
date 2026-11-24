@@ -50,11 +50,31 @@ test starts its own child fixture.
 cargo test -p authenticator-bridge --locked portable_vault
 ```
 
+## Nonce collision estimate for review
+
+Count two 96-bit nonce draws per sealing attempt across all installations
+in the workload under review. Count retries that seal again, including
+attempts that fail before delivery. Copying an already sealed file adds no
+draws. The estimate assumes independent, uniform random draws.
+[Proposed key usage and retry policy](../decisions/0005-portable-encrypted-vault-export.md#proposed-key-usage-and-retry-policy)
+
+With `m` draws there are `m * (m - 1) / 2` pairs. Each pair has probability
+`2^-96` of repeating a nonce, so the sum bounds the chance of any repeat.
+For an illustrative workload of `2^31` attempts, the bound for `2^32`
+draws is strictly below `2^-33`. Counting all nonce repeats makes this
+conservative even if the same encryption key appears in multiple attempts.
+The GCM requirement concerns repeating a nonce with the same key for
+distinct input data. [NIST SP 800-38D, sections 8 and 8.3](https://csrc.nist.gov/pubs/sp/800/38/d/final)
+
+Reviewers still need to assess the workload over the supported lifetime
+and the random-source assumptions across supported platforms, including
+after backup and restore. The example leaves the lifetime limit open.
+
 ## Questions for independent review
 
 1. Do the authenticated fields bind the complete wrapping record to the
    payload as intended? Are the one-use policy and collision assumptions
-   appropriate across devices and repeated exports? [Proposed key usage and retry policy](../decisions/0005-portable-encrypted-vault-export.md#proposed-key-usage-and-retry-policy)
+   appropriate across devices and repeated exports? [Nonce collision estimate](#nonce-collision-estimate-for-review)
 2. Which schema and size limits are appropriate for supported mobile
    devices? How should mobile file pickers apply those limits before
    buffering, and how should clients report authenticated payload errors?
