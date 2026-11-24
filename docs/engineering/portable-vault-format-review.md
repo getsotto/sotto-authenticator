@@ -52,6 +52,12 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   Invalid file imports into a populated database preserve its existing
   records, counter and revision after reopening.
   [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
+- **Restore preview errors.** The Rust preview groups invalid size,
+  malformed framing and invalid authenticated records as an invalid file.
+  It distinguishes an unsupported version or suite, a file read error
+  and an invalid phrase. A valid but wrong phrase and either authentication
+  failure produce the same outcome. Client messages still need review.
+  [Preview errors](../../crates/authenticator-bridge/src/portable_vault/restore.rs)
 - **Release boundary.** The mobile artefact and binding checks showed that
   the portable vault prototype stayed in Rust tests. The existing native
   snapshot and TOTP bindings provide source evidence of where keys and
