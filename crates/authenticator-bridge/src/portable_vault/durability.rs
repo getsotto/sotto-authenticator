@@ -452,6 +452,8 @@ fn rejected_file_imports_preserve_the_stored_vault_and_history() {
     *modified.last_mut().unwrap() ^= 1;
     let mut unsupported = sealed.clone();
     unsupported[4] ^= 1;
+    let mut malformed = sealed.clone();
+    malformed[0] ^= 1;
     let invalid_payload = seal(
         &mut b"{}".to_vec(),
         &entropy,
@@ -460,16 +462,17 @@ fn rejected_file_imports_preserve_the_stored_vault_and_history() {
     .unwrap();
 
     for (bytes, recovery_phrase, expected_error) in [
-        (Vec::new(), &phrase, ExportError::InvalidSize),
+        (Vec::new(), &phrase, PreviewError::InvalidFile),
         (
             vec![0; MAX_ENVELOPE_BYTES + 1],
             &phrase,
-            ExportError::InvalidSize,
+            PreviewError::InvalidFile,
         ),
-        (unsupported, &phrase, ExportError::UnsupportedSuite),
-        (modified, &phrase, ExportError::AuthenticationFailed),
-        (sealed, &wrong_phrase, ExportError::AuthenticationFailed),
-        (invalid_payload, &phrase, ExportError::InvalidPayload),
+        (unsupported, &phrase, PreviewError::UnsupportedFormat),
+        (malformed, &phrase, PreviewError::InvalidFile),
+        (modified, &phrase, PreviewError::CannotOpen),
+        (sealed, &wrong_phrase, PreviewError::CannotOpen),
+        (invalid_payload, &phrase, PreviewError::InvalidFile),
     ] {
         std::fs::write(&file, bytes).unwrap();
         let mut db = open_database(&database).unwrap();
@@ -482,7 +485,7 @@ fn rejected_file_imports_preserve_the_stored_vault_and_history() {
         assert!(
             matches!(
                 &failure,
-                Some(FixtureError::Preview(PreviewError::InvalidExport(error))) if *error == expected_error
+                Some(FixtureError::Preview(error)) if *error == expected_error
             ),
             "expected {expected_error:?}, got {failure:?}"
         );

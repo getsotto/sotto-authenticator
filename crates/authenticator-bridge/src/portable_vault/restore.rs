@@ -28,7 +28,24 @@ pub(super) struct RestorePreview {
 pub(super) enum PreviewError {
     InvalidPhrase,
     ReadFailed,
-    InvalidExport(ExportError),
+    InvalidFile,
+    UnsupportedFormat,
+    CannotOpen,
+}
+
+impl From<ExportError> for PreviewError {
+    fn from(error: ExportError) -> Self {
+        match error {
+            ExportError::InvalidSize | ExportError::InvalidHeader | ExportError::InvalidPayload => {
+                Self::InvalidFile
+            }
+            ExportError::UnsupportedSuite => Self::UnsupportedFormat,
+            // Keep one failure for a valid but wrong phrase and either failed tag.
+            ExportError::AuthenticationFailed => Self::CannotOpen,
+            // These errors come from sealing. Keep their details out of preview errors.
+            ExportError::RandomnessUnavailable | ExportError::EncryptionFailed => Self::CannotOpen,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -138,16 +155,13 @@ impl RestoreState {
             .take((MAX_ENVELOPE_BYTES + 1) as u64)
             .read_to_end(&mut envelope)
             .map_err(|_| PreviewError::ReadFailed)?;
-        let framed = FramedEnvelope::parse(&envelope).map_err(PreviewError::InvalidExport)?;
+        let framed = FramedEnvelope::parse(&envelope)?;
         let payload = {
             let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
             drop(phrase);
-            framed
-                .decrypt(&entropy)
-                .map_err(PreviewError::InvalidExport)?
+            framed.decrypt(&entropy)?
         };
-        let vault = SyntheticVault::from_bytes(&payload, MAX_PLAINTEXT_BYTES)
-            .map_err(PreviewError::InvalidExport)?;
+        let vault = SyntheticVault::from_bytes(&payload, MAX_PLAINTEXT_BYTES)?;
         drop(payload);
         let known_counter = self.highest_counter(&vault.vault_id);
         let history = match known_counter {
