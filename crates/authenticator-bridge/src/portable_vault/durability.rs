@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -200,12 +200,19 @@ impl PendingFixtureRestore {
         let entropy = node_entropy();
         let phrase = synthetic_recovery_phrase(&entropy);
         let envelope = export(incoming, &entropy).map_err(FixtureError::Envelope)?;
+        Self::prepare_from_reader(db, envelope.as_slice(), &phrase)
+    }
 
+    fn prepare_from_reader(
+        db: &mut Connection,
+        reader: impl Read,
+        phrase: &str,
+    ) -> Result<Self, FixtureError> {
         // Read the preview's active vault and the stamp from the same snapshot.
         let tx = db.transaction()?;
         let state = load_state(&tx)?;
         let pending = state
-            .prepare_restore(envelope.as_slice(), &phrase)
+            .prepare_restore(reader, phrase)
             .map_err(FixtureError::Preview)?;
         let stamp = store_stamp(&tx, &pending.preview().vault_id)?;
         tx.commit()?;
@@ -374,6 +381,49 @@ fn retrying_a_partial_save_keeps_the_sealed_bytes_and_counter() {
 
     let next = reserve_durably(&mut db, 3).unwrap().seal(&entropy).unwrap();
     assert_eq!(open(&next, &entropy).unwrap().export_counter, 8);
+}
+
+#[test]
+fn saved_export_restores_into_a_fresh_database_after_confirmation() {
+    use super::restore::RestoreHistory;
+
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("source.sqlite");
+    let destination = directory.path().join("destination.sqlite");
+    let file = directory.path().join("vault.sotv");
+    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 2);
+    seed_database(&source, &original).unwrap();
+    initialise_database(&destination).unwrap();
+
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let sealed = reserve_durably(&mut open_database(&source).unwrap(), 42)
+        .unwrap()
+        .seal(&entropy)
+        .unwrap();
+    save_fixture_export(directory.path(), &file, |writer| writer.write_all(&sealed)).unwrap();
+
+    let mut db = open_database(&destination).unwrap();
+    let pending =
+        PendingFixtureRestore::prepare_from_reader(&mut db, File::open(&file).unwrap(), &phrase)
+            .unwrap();
+    assert_eq!(pending.preview().history, RestoreHistory::NoLocalHistory);
+    assert_eq!(pending.preview().export_counter, 7);
+    let before = load_state(&db).unwrap();
+    assert!(before.active().is_none());
+    assert_eq!(before.highest_counter(FIXTURE_VAULT_ID), None);
+
+    pending
+        .confirm(&mut db, RestoreConfirmation::Replace)
+        .unwrap();
+    drop(db);
+    let db = open_database(&destination).unwrap();
+    let restored = load_state(&db).unwrap();
+    let mut expected = original;
+    expected.export_counter = 7;
+    expected.issued_at = 42;
+    assert!(restored.active() == Some(&expected));
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
 }
 
 #[test]
