@@ -2,6 +2,8 @@
 //! key. SQLite and this schema are here to exercise interruption semantics.
 
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -316,6 +318,62 @@ fn failed_random_reads_keep_reserved_counters_after_reopen() {
     expected.issued_at = 3;
     assert!(open(&retry, &entropy).unwrap() == expected);
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 11);
+}
+
+fn save_fixture_export(
+    directory: &Path,
+    destination: &Path,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut staging = tempfile::NamedTempFile::new_in(directory)?;
+    write(staging.as_file_mut())?;
+    staging.persist(destination).map_err(|error| error.error)?;
+    Ok(())
+}
+
+#[test]
+fn retrying_a_partial_save_keeps_the_sealed_bytes_and_counter() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("vault.sqlite");
+    let destination = directory.path().join("vault.sotv");
+    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
+    seed_database(&database, &original).unwrap();
+    let entropy = node_entropy();
+    let previous = export(&original, &entropy).unwrap();
+    save_fixture_export(directory.path(), &destination, |file| {
+        file.write_all(&previous)
+    })
+    .unwrap();
+
+    let mut db = open_database(&database).unwrap();
+    let sealed = reserve_durably(&mut db, 2).unwrap().seal(&entropy).unwrap();
+    drop(db);
+
+    let failure = save_fixture_export(directory.path(), &destination, |file| {
+        file.write_all(&sealed[..sealed.len() / 2])?;
+        Err(io::Error::other("synthetic partial save failure"))
+    });
+    assert!(failure.is_err());
+    assert_eq!(std::fs::read(&destination).unwrap(), previous);
+
+    // Retry the write with the same envelope, even after reopening the store.
+    let mut db = open_database(&database).unwrap();
+    save_fixture_export(directory.path(), &destination, |file| {
+        file.write_all(&sealed)
+    })
+    .unwrap();
+    assert_eq!(std::fs::read(&destination).unwrap(), sealed);
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
+    let state = load_state(&db).unwrap();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let preview = state
+        .prepare_restore(File::open(&destination).unwrap(), &phrase)
+        .unwrap();
+    assert_eq!(preview.preview().export_counter, 7);
+    assert!(state.active() == Some(&original));
+
+    let next = reserve_durably(&mut db, 3).unwrap().seal(&entropy).unwrap();
+    assert_eq!(open(&next, &entropy).unwrap().export_counter, 8);
 }
 
 #[test]

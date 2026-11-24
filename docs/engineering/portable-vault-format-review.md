@@ -24,6 +24,11 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   injects a partial failure at each of the four random reads. Each fails
   the export and keeps the reservation, and the next successful export opens
   with a new counter. [Phrase tests](../../crates/authenticator-bridge/src/portable_vault/recovery_phrase.rs) · [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
+- **Save retry.** A host test stages an export beside its destination. A
+  partial write leaves the previous file intact. Retrying the same sealed
+  bytes after reopening the counter store preserves the original counter.
+  Mobile file providers and power-loss behaviour still need evidence.
+  [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
 - **Restore consistency.** The host fixture preserves the highest observed
   counter after a deliberate rollback, rejects stale previews and recovers
   the previous vault and counter after an uncommitted writer exits.
