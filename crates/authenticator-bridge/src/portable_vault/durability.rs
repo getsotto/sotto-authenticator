@@ -427,6 +427,77 @@ fn saved_export_restores_into_a_fresh_database_after_confirmation() {
 }
 
 #[test]
+fn rejected_file_imports_preserve_the_stored_vault_and_history() {
+    use super::{seal, MAX_ENVELOPE_BYTES};
+
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("vault.sqlite");
+    let file = directory.path().join("incoming.sotv");
+    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
+    seed_database(&database, &original).unwrap();
+    let mut db = open_database(&database).unwrap();
+    let reservation = reserve_durably(&mut db, 1).unwrap();
+    drop(reservation);
+    let tx = db.transaction().unwrap();
+    let before = store_stamp(&tx, FIXTURE_VAULT_ID).unwrap();
+    tx.commit().unwrap();
+    drop(db);
+
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let wrong_phrase = synthetic_recovery_phrase(&SecretKey::new([0xff; KEY_BYTES]));
+    let incoming = restore_fixture(FIXTURE_VAULT_ID, 9, 2);
+    let sealed = export(&incoming, &entropy).unwrap();
+    let mut modified = sealed.clone();
+    *modified.last_mut().unwrap() ^= 1;
+    let mut unsupported = sealed.clone();
+    unsupported[4] ^= 1;
+    let invalid_payload = seal(
+        &mut b"{}".to_vec(),
+        &entropy,
+        ExportRandomness::generate().unwrap(),
+    )
+    .unwrap();
+
+    for (bytes, recovery_phrase, expected_error) in [
+        (Vec::new(), &phrase, ExportError::InvalidSize),
+        (
+            vec![0; MAX_ENVELOPE_BYTES + 1],
+            &phrase,
+            ExportError::InvalidSize,
+        ),
+        (unsupported, &phrase, ExportError::UnsupportedSuite),
+        (modified, &phrase, ExportError::AuthenticationFailed),
+        (sealed, &wrong_phrase, ExportError::AuthenticationFailed),
+        (invalid_payload, &phrase, ExportError::InvalidPayload),
+    ] {
+        std::fs::write(&file, bytes).unwrap();
+        let mut db = open_database(&database).unwrap();
+        let failure = PendingFixtureRestore::prepare_from_reader(
+            &mut db,
+            File::open(&file).unwrap(),
+            recovery_phrase,
+        )
+        .err();
+        assert!(
+            matches!(
+                &failure,
+                Some(FixtureError::Preview(PreviewError::InvalidExport(error))) if *error == expected_error
+            ),
+            "expected {expected_error:?}, got {failure:?}"
+        );
+        drop(db);
+
+        let mut reopened = open_database(&database).unwrap();
+        let state = load_state(&reopened).unwrap();
+        assert!(state.active() == Some(&original));
+        assert_eq!(persisted_counter(&reopened, FIXTURE_VAULT_ID), 7);
+        let tx = reopened.transaction().unwrap();
+        assert!(store_stamp(&tx, FIXTURE_VAULT_ID).unwrap() == before);
+    }
+}
+
+#[test]
 fn independent_database_connections_reserve_distinct_counters() {
     use std::sync::Barrier;
     use std::thread;
