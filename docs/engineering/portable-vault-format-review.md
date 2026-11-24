@@ -29,6 +29,11 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   generated 24-word English phrase. Native input controls and paste
   behaviour still need review.
   [Phrase tests](../../crates/authenticator-bridge/src/portable_vault/recovery_phrase.rs)
+- **Recovery entropy lifetime.** The preview completes the bounded read
+  and framing checks before deriving entropy. It drops its parsed mnemonic
+  before decryption and clears the owned entropy before decoding records.
+  The caller still owns the original phrase input.
+  [Restore implementation](../../crates/authenticator-bridge/src/portable_vault/restore.rs)
 - **Recovery rotation.** A host test seals a second export with a different
   phrase. Each file opens with its own phrase. After restoring the newer
   export, the older file still requires rollback acknowledgement and
