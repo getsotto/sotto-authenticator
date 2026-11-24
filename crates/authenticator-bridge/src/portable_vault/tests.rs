@@ -623,12 +623,12 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
     let wrong_phrase = synthetic_recovery_phrase(&Zeroizing::new([0xff; KEY_BYTES]));
     let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let envelope = export(&vault, &entropy).unwrap();
+    let mut unread = std::io::Cursor::new(envelope.as_slice());
     assert_eq!(
-        state
-            .prepare_restore(envelope.as_slice(), "invalid phrase")
-            .err(),
+        state.prepare_restore(&mut unread, "invalid phrase").err(),
         Some(PreviewError::InvalidPhrase)
     );
+    assert_eq!(unread.position(), 0);
     assert_eq!(
         state
             .prepare_restore(envelope.as_slice(), &wrong_phrase)

@@ -126,45 +126,58 @@ fn seal(
 }
 
 fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportError> {
-    // Only the fixed fields and tags determine the minimum. The authenticated
-    // JSON schema determines which plaintext lengths can actually be valid.
-    if !(OVERHEAD..=MAX_ENVELOPE_BYTES).contains(&envelope.len()) {
-        return Err(ExportError::InvalidSize);
-    }
-    if envelope[..4] != HEADER[..4] || envelope[6..8] != HEADER[6..8] {
-        return Err(ExportError::InvalidHeader);
-    }
-    if envelope[4..6] != HEADER[4..6] {
-        return Err(ExportError::UnsupportedSuite);
-    }
-
-    let prk = extract(&envelope[HEADER.len()..SALT_END], entropy);
-    let wrapping_key = expand(&prk);
-    let mut data_key = Zeroizing::new([0; KEY_BYTES]);
-    data_key.copy_from_slice(&envelope[WRAP_NONCE_END..WRAPPED_KEY_END]);
-    cipher(&wrapping_key)
-        .decrypt_in_place_detached(
-            Nonce::from_slice(&envelope[SALT_END..WRAP_NONCE_END]),
-            &envelope[..SALT_END],
-            &mut data_key[..],
-            Tag::from_slice(&envelope[WRAPPED_KEY_END..WRAP_END]),
-        )
-        .map_err(|_| ExportError::AuthenticationFailed)?;
-
-    let tag_start = envelope.len() - TAG_BYTES;
-    let mut payload = Zeroizing::new(envelope[PAYLOAD_START..tag_start].to_vec());
-    // Include the complete wrapping record so even a second valid wrap of this
-    // same data key cannot authenticate the original payload.
-    cipher(&data_key)
-        .decrypt_in_place_detached(
-            Nonce::from_slice(&envelope[WRAP_END..PAYLOAD_START]),
-            &envelope[..WRAP_END],
-            &mut payload,
-            Tag::from_slice(&envelope[tag_start..]),
-        )
-        .map_err(|_| ExportError::AuthenticationFailed)?;
-
+    let payload = FramedEnvelope::parse(envelope)?.decrypt(entropy)?;
     SyntheticVault::from_bytes(&payload, MAX_PLAINTEXT_BYTES)
+}
+
+struct FramedEnvelope<'a>(&'a [u8]);
+
+impl<'a> FramedEnvelope<'a> {
+    fn parse(envelope: &'a [u8]) -> Result<Self, ExportError> {
+        // Only the fixed fields and tags determine the minimum. The authenticated
+        // JSON schema determines which plaintext lengths can actually be valid.
+        if !(OVERHEAD..=MAX_ENVELOPE_BYTES).contains(&envelope.len()) {
+            return Err(ExportError::InvalidSize);
+        }
+        if envelope[..4] != HEADER[..4] || envelope[6..8] != HEADER[6..8] {
+            return Err(ExportError::InvalidHeader);
+        }
+        if envelope[4..6] != HEADER[4..6] {
+            return Err(ExportError::UnsupportedSuite);
+        }
+        Ok(Self(envelope))
+    }
+
+    fn decrypt(self, entropy: &SecretKey) -> Result<Zeroizing<Vec<u8>>, ExportError> {
+        let envelope = self.0;
+        let prk = extract(&envelope[HEADER.len()..SALT_END], entropy);
+        let wrapping_key = expand(&prk);
+        let mut data_key = Zeroizing::new([0; KEY_BYTES]);
+        data_key.copy_from_slice(&envelope[WRAP_NONCE_END..WRAPPED_KEY_END]);
+        cipher(&wrapping_key)
+            .decrypt_in_place_detached(
+                Nonce::from_slice(&envelope[SALT_END..WRAP_NONCE_END]),
+                &envelope[..SALT_END],
+                &mut data_key[..],
+                Tag::from_slice(&envelope[WRAPPED_KEY_END..WRAP_END]),
+            )
+            .map_err(|_| ExportError::AuthenticationFailed)?;
+
+        let tag_start = envelope.len() - TAG_BYTES;
+        let mut payload = Zeroizing::new(envelope[PAYLOAD_START..tag_start].to_vec());
+        // Include the complete wrapping record so even a second valid wrap of this
+        // same data key cannot authenticate the original payload.
+        cipher(&data_key)
+            .decrypt_in_place_detached(
+                Nonce::from_slice(&envelope[WRAP_END..PAYLOAD_START]),
+                &envelope[..WRAP_END],
+                &mut payload,
+                Tag::from_slice(&envelope[tag_start..]),
+            )
+            .map_err(|_| ExportError::AuthenticationFailed)?;
+
+        Ok(payload)
+    }
 }
 
 fn cipher(key: &SecretKey) -> Aes256Gcm {
