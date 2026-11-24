@@ -5,7 +5,8 @@ use std::sync::Arc;
 use super::payload::{SyntheticVault, MAX_JSON_INTEGER};
 use super::recovery_phrase::RecoveryPhrase;
 use super::{
-    export_with_randomness, open, ExportError, ExportRandomness, SecretKey, MAX_ENVELOPE_BYTES,
+    export_with_randomness, ExportError, ExportRandomness, FramedEnvelope, SecretKey,
+    MAX_ENVELOPE_BYTES, MAX_PLAINTEXT_BYTES,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -131,15 +132,23 @@ impl RestoreState {
         phrase: &str,
     ) -> Result<PendingRestore, PreviewError> {
         let phrase = RecoveryPhrase::parse(phrase).map_err(|_| PreviewError::InvalidPhrase)?;
-        let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
-        // Let open reject one extra byte as oversized. Capping at exactly the
-        // limit would make an authentic prefix look like a complete file.
+        // Read one extra byte so a valid prefix cannot hide an oversized file.
         let mut envelope = Vec::new();
         reader
             .take((MAX_ENVELOPE_BYTES + 1) as u64)
             .read_to_end(&mut envelope)
             .map_err(|_| PreviewError::ReadFailed)?;
-        let vault = open(&envelope, &entropy).map_err(PreviewError::InvalidExport)?;
+        let framed = FramedEnvelope::parse(&envelope).map_err(PreviewError::InvalidExport)?;
+        let payload = {
+            let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
+            drop(phrase);
+            framed
+                .decrypt(&entropy)
+                .map_err(PreviewError::InvalidExport)?
+        };
+        let vault = SyntheticVault::from_bytes(&payload, MAX_PLAINTEXT_BYTES)
+            .map_err(PreviewError::InvalidExport)?;
+        drop(payload);
         let known_counter = self.highest_counter(&vault.vault_id);
         let history = match known_counter {
             None => RestoreHistory::NoLocalHistory,
