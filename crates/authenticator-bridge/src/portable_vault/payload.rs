@@ -52,9 +52,32 @@ struct Entry {
 
 // Wrap each string as it is decoded so completed fields are cleared even if
 // a later field prevents the record from being constructed.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(transparent)]
 struct RecordText(Zeroizing<String>);
+
+impl<'de> Deserialize<'de> for RecordText {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct RecordTextVisitor;
+
+        impl Visitor<'_> for RecordTextVisitor {
+            type Value = RecordText;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(formatter, "a string up to {MAX_LABEL_BYTES} UTF-8 bytes")
+            }
+
+            fn visit_str<E: de::Error>(self, text: &str) -> Result<RecordText, E> {
+                if text.len() > MAX_LABEL_BYTES {
+                    return Err(E::custom("record text exceeds the UTF-8 byte limit"));
+                }
+                Ok(RecordText(Zeroizing::new(text.to_owned())))
+            }
+        }
+
+        deserializer.deserialize_str(RecordTextVisitor)
+    }
+}
 
 impl PartialEq for RecordText {
     fn eq(&self, other: &Self) -> bool {
@@ -63,6 +86,17 @@ impl PartialEq for RecordText {
 }
 
 impl Eq for RecordText {}
+
+#[test]
+fn record_text_checks_the_decoded_byte_limit_before_owning_the_string() {
+    for character in ["é", r"\u00e9"] {
+        let at_limit = format!("\"{}\"", character.repeat(MAX_LABEL_BYTES / 2));
+        let decoded: RecordText = serde_json::from_str(&at_limit).unwrap();
+        assert_eq!(decoded.0.len(), MAX_LABEL_BYTES);
+        let over_limit = format!("\"{}\"", character.repeat(MAX_LABEL_BYTES / 2 + 1));
+        assert!(serde_json::from_str::<RecordText>(&over_limit).is_err());
+    }
+}
 
 #[test]
 fn decoded_names_and_labels_use_clearing_buffers() {
@@ -123,13 +157,13 @@ impl SyntheticVault {
 
         let mut project_ids = BTreeSet::new();
         for project in &self.projects.0 {
-            validate_record(&mut project_ids, &project.id, &project.name)?;
+            validate_record_id(&mut project_ids, &project.id)?;
             let mut instance_ids = BTreeSet::new();
             for instance in &project.instances.0 {
-                validate_record(&mut instance_ids, &instance.id, &instance.name)?;
+                validate_record_id(&mut instance_ids, &instance.id)?;
                 let mut entry_ids = BTreeSet::new();
                 for entry in &instance.entries.0 {
-                    validate_record(&mut entry_ids, &entry.id, &entry.label)?;
+                    validate_record_id(&mut entry_ids, &entry.id)?;
                 }
             }
         }
@@ -144,12 +178,8 @@ fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn validate_record<'a>(
-    ids: &mut BTreeSet<&'a str>,
-    id: &'a str,
-    label: &RecordText,
-) -> Result<(), ExportError> {
-    if !valid_id(id) || !ids.insert(id) || label.0.len() > MAX_LABEL_BYTES {
+fn validate_record_id<'a>(ids: &mut BTreeSet<&'a str>, id: &'a str) -> Result<(), ExportError> {
+    if !valid_id(id) || !ids.insert(id) {
         return Err(ExportError::InvalidPayload);
     }
     Ok(())
