@@ -74,6 +74,9 @@ A future human-chosen passphrase would require its own password KDF decision.
 
 ## Decisions requested
 
+The [review evidence](../engineering/portable-vault-format-review.md) records
+the synthetic results and the questions that still need a decision.
+
 Independent cryptographic and platform reviewers should assess:
 
 1. The authenticated fields and the key and nonce lifecycle for both
