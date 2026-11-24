@@ -57,6 +57,25 @@ production backup format. This proposal does not promote that test API.
 The byte layout, payload schema, parser bounds and client integration remain
 subject to review before the format is final.
 
+### Proposed key usage and retry policy
+
+Allow one AES-GCM encryption with the derived wrapping key and one with the
+fresh data key per sealing attempt. Generate the salt, data key and both
+nonces together for each attempt. Treat these inputs as single-use as soon
+as sealing begins. If randomness fails, abort the attempt. If sealing fails
+or is interrupted, start over with fresh inputs and a new reservation.
+
+Retrying a write of a complete, unchanged sealed envelope copies the same
+bytes and keeps its original counter. Any change to its records, encrypted
+metadata or recovery material requires a fresh sealing attempt. Report a
+partial write as a failed save.
+
+The export counter tracks local history and can diverge between offline
+devices. Key and nonce uniqueness relies on the random source and key
+derivation. Review the collision assumptions across devices sharing a
+recovery phrase and the acceptable number of attempts over its lifetime.
+AES-GCM requires nonce uniqueness per key. [RFC 5116, section 5.1.1](https://www.rfc-editor.org/rfc/rfc5116.html#section-5.1.1) · [NIST SP 800-38D, section 8](https://csrc.nist.gov/pubs/sp/800/38/d/final)
+
 ## Consequences
 
 The format remains independent of Apple Keychain and Android Keystore and
@@ -67,9 +86,8 @@ same data key. Recovery rotation therefore produces a fresh export with new
 random inputs. Existing files still require their original recovery phrase.
 
 The envelope has one wrapping record. Supporting additional recovery factors
-would require a separate format decision. AES-GCM requires nonce uniqueness
-per key. The implementation must document its randomness and invocation
-limits. HKDF assumes the recovery material was generated with high entropy.
+would require a separate format decision. HKDF assumes the recovery material
+was generated with high entropy.
 A future human-chosen passphrase would require its own password KDF decision.
 
 ## Decisions requested

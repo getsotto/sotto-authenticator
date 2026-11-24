@@ -43,8 +43,8 @@ cargo test -p authenticator-bridge --locked portable_vault
 ## Questions for independent review
 
 1. Do the authenticated fields bind the complete wrapping record to the
-   payload as intended? What key and nonce usage limits should apply across
-   repeated exports and retries?
+   payload as intended? Are the one-use policy and collision assumptions
+   appropriate across devices and repeated exports? [Proposed key usage and retry policy](../decisions/0005-portable-encrypted-vault-export.md#proposed-key-usage-and-retry-policy)
 2. Which schema and size limits are appropriate for supported mobile
    devices? How should mobile file pickers apply those limits before
    buffering, and how should clients report authenticated payload errors?
