@@ -49,6 +49,11 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   decoding can still use parser scratch space. Scratch buffers, identifiers
   and native copies still need review.
   [Payload types](../../crates/authenticator-bridge/src/portable_vault/payload.rs)
+- **Decoded identifiers.** The parser checks the existing identifier syntax
+  before creating an owned identifier. It checks sibling uniqueness during
+  vault validation. Preview and counter history still retain their own
+  copies of vault identifiers.
+  [Payload types](../../crates/authenticator-bridge/src/portable_vault/payload.rs)
 
 Run the published Rust checks from the repository root. The interrupted-write
 test starts its own child fixture.
