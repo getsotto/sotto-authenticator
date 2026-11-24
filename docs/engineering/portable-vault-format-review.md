@@ -8,11 +8,13 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
 ## Evidence available
 
 - **Interoperability.** A standalone Node.js writer and Python reader agreed
-  on all 52 synthetic cases. These included empty and populated vaults, size
+  on all 53 synthetic cases. These included empty and populated vaults, size
   limits, malformed authenticated JSON and an alternate wrapping record for
-  the same data key. The public Rust suite reproduces the empty-vault
-  envelope byte for byte and tests populated round trips and rejection of
-  the alternate wrapper. [Envelope and payload tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
+  the same data key. The public Rust suite reproduces one empty and one
+  populated envelope byte for byte and tests rejection of the alternate
+  wrapper. The populated fixture uses the same ID across record types and
+  includes an escaped label with a multibyte character.
+  [Envelope and payload tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Bounded restore reads.** The Rust preview accepts a valid envelope at the
   provisional limit. It stops after the first byte over the limit and
   rejects read failures even after receiving a valid envelope prefix.
