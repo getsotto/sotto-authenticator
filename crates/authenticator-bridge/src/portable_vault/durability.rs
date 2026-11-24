@@ -203,7 +203,7 @@ impl PendingFixtureRestore {
         let tx = db.transaction()?;
         let state = load_state(&tx)?;
         let pending = state
-            .prepare_restore(&envelope, &phrase)
+            .prepare_restore(envelope.as_slice(), &phrase)
             .map_err(FixtureError::Preview)?;
         let stamp = store_stamp(&tx, &pending.preview().vault_id)?;
         tx.commit()?;
@@ -380,7 +380,9 @@ fn fresh_store_and_an_unrelated_vault_have_independent_history() {
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 9);
     assert_eq!(persisted_counter(&db, other_id), 3);
     let envelope = export(&first, &entropy).unwrap();
-    let pending = reopened.prepare_restore(&envelope, &phrase).unwrap();
+    let pending = reopened
+        .prepare_restore(envelope.as_slice(), &phrase)
+        .unwrap();
     assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
 }
 
