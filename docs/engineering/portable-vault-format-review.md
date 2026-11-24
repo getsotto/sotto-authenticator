@@ -44,8 +44,10 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   plaintext can be copied. [Release boundary findings](portable-vault-release-boundary.md)
 - **Decoded record text.** The prototype wraps owned, decoded project and
   instance names and entry labels in clearing buffers. Those allocations
-  clear on drop, including when a preview is discarded. Parser scratch
-  buffers, identifiers and native copies still need review.
+  clear on drop, including when a preview is discarded. The decoder checks
+  the UTF-8 byte limit before allocating the owned record text. JSON escape
+  decoding can still use parser scratch space. Scratch buffers, identifiers
+  and native copies still need review.
   [Payload types](../../crates/authenticator-bridge/src/portable_vault/payload.rs)
 
 Run the published Rust checks from the repository root. The interrupted-write
