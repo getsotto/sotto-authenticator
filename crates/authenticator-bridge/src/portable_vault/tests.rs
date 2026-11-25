@@ -110,6 +110,7 @@ fn matches_the_independent_populated_vault_envelope() {
         entropy_hex: String,
         plaintext: String,
         envelope_hex: String,
+        replacement_wrapping_record_hex: String,
     }
 
     let fixture: Fixture =
@@ -136,6 +137,16 @@ fn matches_the_independent_populated_vault_envelope() {
     };
     assert_eq!(seal(&mut payload, &entropy, randomness).unwrap(), expected);
     assert!(open(&expected, &entropy).unwrap() == vault);
+
+    let mut replaced = expected;
+    let replacement_record = HEXLOWER
+        .decode(fixture.replacement_wrapping_record_hex.as_bytes())
+        .unwrap();
+    replaced[SALT_END..WRAP_END].copy_from_slice(&replacement_record);
+    assert_eq!(
+        open(&replaced, &entropy).err(),
+        Some(ExportError::AuthenticationFailed)
+    );
 }
 
 #[test]
