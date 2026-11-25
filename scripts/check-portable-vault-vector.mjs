@@ -1,21 +1,28 @@
 import assert from 'node:assert/strict';
-import { createDecipheriv, hkdfSync } from 'node:crypto';
+import { createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-// This check opens one public synthetic vector using Node's crypto primitives.
+// Fixed inputs belong to this public synthetic vector.
 const fixturePath = new URL(
   '../crates/authenticator-bridge/src/portable_vault/fixtures/populated-vault.json',
   import.meta.url,
 );
-const { entropyHex, plaintext, envelopeHex, replacementWrappingRecordHex } =
+const { entropyHex, plaintext, envelopeHex, replacementWrappingRecordHex, fixedInputs } =
   JSON.parse(readFileSync(fixturePath, 'utf8'));
 assert.match(entropyHex, /^[0-9a-f]{64}$/);
 assert.match(envelopeHex, /^(?:[0-9a-f]{2})+$/);
 assert.match(replacementWrappingRecordHex, /^[0-9a-f]{120}$/);
 const entropy = Buffer.from(entropyHex, 'hex');
 const envelope = Buffer.from(envelopeHex, 'hex');
+const header = Buffer.from('534f545601010000', 'hex');
 assert.ok(envelope.length >= 128, 'incomplete fixture envelope');
-assert.equal(envelope.subarray(0, 8).toString('hex'), '534f545601010000');
+assert.deepEqual(envelope.subarray(0, 8), header);
+
+function encrypt(key, nonce, message, associatedData) {
+  const cipher = createCipheriv('aes-256-gcm', key, nonce, { authTagLength: 16 });
+  cipher.setAAD(associatedData);
+  return Buffer.concat([cipher.update(message), cipher.final(), cipher.getAuthTag()]);
+}
 
 function decrypt(key, nonce, sealed, associatedData) {
   const tagLength = 16;
@@ -25,9 +32,12 @@ function decrypt(key, nonce, sealed, associatedData) {
   return Buffer.concat([decipher.update(sealed.subarray(0, -tagLength)), decipher.final()]);
 }
 
-const salt = envelope.subarray(8, 40);
-const context = 'org.getsotto.sotto-authenticator/portable-vault/v1/kek';
-const wrappingKey = Buffer.from(hkdfSync('sha256', entropy, salt, context, 32));
+function deriveWrappingKey(salt) {
+  const context = 'org.getsotto.sotto-authenticator/portable-vault/v1/kek';
+  return Buffer.from(hkdfSync('sha256', entropy, salt, context, 32));
+}
+
+const wrappingKey = deriveWrappingKey(envelope.subarray(8, 40));
 function unwrapDataKey(bytes) {
   return decrypt(wrappingKey, bytes.subarray(40, 52), bytes.subarray(52, 100), bytes.subarray(0, 40));
 }
@@ -37,9 +47,21 @@ function openPayload(key, bytes) {
 }
 
 const dataKey = unwrapDataKey(envelope);
+const message = Buffer.from(plaintext, 'utf8');
 const decoded = openPayload(dataKey, envelope);
-assert.deepEqual(decoded, Buffer.from(plaintext, 'utf8'));
+assert.deepEqual(decoded, message);
 console.log('Populated vault fixture authenticated and matched the expected bytes.');
+
+const salt = Buffer.alloc(32, fixedInputs.saltByte);
+const wrappingNonce = Buffer.alloc(12, fixedInputs.wrappingNonceByte);
+const fixedDataKey = Buffer.alloc(32, fixedInputs.dataKeyByte);
+const payloadNonce = Buffer.alloc(12, fixedInputs.payloadNonceByte);
+const wrappingData = Buffer.concat([header, salt]);
+const wrapped = encrypt(deriveWrappingKey(salt), wrappingNonce, fixedDataKey, wrappingData);
+const payloadData = Buffer.concat([wrappingData, wrappingNonce, wrapped]);
+const sealed = encrypt(fixedDataKey, payloadNonce, message, payloadData);
+assert.deepEqual(Buffer.concat([payloadData, payloadNonce, sealed]), envelope);
+console.log('Independent sealing reproduced the populated envelope byte for byte.');
 
 const replaced = Buffer.from(envelope);
 Buffer.from(replacementWrappingRecordHex, 'hex').copy(replaced, 40);

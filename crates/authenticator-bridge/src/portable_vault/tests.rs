@@ -111,6 +111,16 @@ fn matches_the_independent_populated_vault_envelope() {
         plaintext: String,
         envelope_hex: String,
         replacement_wrapping_record_hex: String,
+        fixed_inputs: FixedInputs,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixedInputs {
+        salt_byte: u8,
+        wrapping_nonce_byte: u8,
+        data_key_byte: u8,
+        payload_nonce_byte: u8,
     }
 
     let fixture: Fixture =
@@ -129,11 +139,12 @@ fn matches_the_independent_populated_vault_envelope() {
     assert_eq!(&payload[..], json.as_bytes());
 
     // Public fixed inputs used by the independent Node.js and Python fixture.
+    let inputs = fixture.fixed_inputs;
     let randomness = ExportRandomness {
-        salt: [0x11; KEY_BYTES],
-        wrap_nonce: [0x21; NONCE_BYTES],
-        data_key: Zeroizing::new([0x31; KEY_BYTES]),
-        payload_nonce: [0x41; NONCE_BYTES],
+        salt: [inputs.salt_byte; KEY_BYTES],
+        wrap_nonce: [inputs.wrapping_nonce_byte; NONCE_BYTES],
+        data_key: Zeroizing::new([inputs.data_key_byte; KEY_BYTES]),
+        payload_nonce: [inputs.payload_nonce_byte; NONCE_BYTES],
     };
     assert_eq!(seal(&mut payload, &entropy, randomness).unwrap(), expected);
     assert!(open(&expected, &entropy).unwrap() == vault);

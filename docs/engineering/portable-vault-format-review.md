@@ -113,11 +113,11 @@ test starts its own child fixture.
 cargo test -p authenticator-bridge --locked portable_vault
 ```
 
-The populated vector is also checked by an independent reader that uses
-Node.js built-ins from a public checkout. It authenticates both parts of the
-envelope and checks the exact plaintext bytes against the same synthetic
-fixture used by Rust. The reader also verifies that a substituted wrapping
-record unwraps to the same data key and that the original payload fails
+Node.js built-ins check the populated vector from a public checkout. The
+script authenticates both parts of the envelope and checks the plaintext.
+It seals the same synthetic plaintext and fixed inputs used by Rust and
+compares the full envelope byte for byte. It also verifies that a
+substituted wrapping record unwraps to the same data key and the payload fails
 authentication with the substituted record. Rust rejects the same input.
 [Populated vector](../../crates/authenticator-bridge/src/portable_vault/fixtures/populated-vault.json)
 
