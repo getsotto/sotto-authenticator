@@ -89,6 +89,10 @@ impl ReservedExport {
 pub(super) struct AuthenticatedExport(SyntheticVault);
 
 impl AuthenticatedExport {
+    pub(super) fn vault_id(&self) -> &str {
+        &self.0.vault_id
+    }
+
     pub(super) fn read(reader: impl Read, phrase: &str) -> Result<Self, PreviewError> {
         let phrase = RecoveryPhrase::parse(phrase).map_err(|_| PreviewError::InvalidPhrase)?;
         // Read one extra byte so a valid prefix cannot hide an oversized file.

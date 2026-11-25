@@ -83,7 +83,7 @@ fn seed_database(path: &Path, active: &SyntheticVault) -> Result<(), FixtureErro
     Ok(())
 }
 
-fn load_state(db: &Connection) -> Result<RestoreState, FixtureError> {
+fn load_state(db: &Connection, incoming_id: Option<&str>) -> Result<RestoreState, FixtureError> {
     let envelope: Option<Vec<u8>> = db
         .query_row(
             "SELECT envelope FROM active_vault WHERE slot = 1",
@@ -95,8 +95,10 @@ fn load_state(db: &Connection) -> Result<RestoreState, FixtureError> {
         .map(|bytes| open(&bytes, &fixture_key()))
         .transpose()
         .map_err(FixtureError::Envelope)?;
-    let mut query = db.prepare("SELECT vault_id, highest FROM export_history")?;
-    let rows = query.query_map([], |row| {
+    let active_id = active.as_ref().map(|vault| vault.vault_id.as_str());
+    let mut query =
+        db.prepare("SELECT vault_id, highest FROM export_history WHERE vault_id IN (?1, ?2)")?;
+    let rows = query.query_map(params![active_id, incoming_id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     })?;
     let mut highest_counters = BTreeMap::new();
@@ -153,7 +155,7 @@ fn reserve_durably(db: &mut Connection, issued_at: u64) -> Result<ReservedExport
     // Take the write lock before reading the counter so two connections cannot
     // reserve the same value. Return the snapshot only after commit succeeds.
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let mut state = load_state(&tx)?;
+    let mut state = load_state(&tx, None)?;
     let reservation = state
         .reserve_export(issued_at)
         .map_err(FixtureError::Reserve)?;
@@ -213,7 +215,7 @@ impl PendingFixtureRestore {
         let incoming = AuthenticatedExport::read(reader, phrase).map_err(FixtureError::Preview)?;
         // Read the preview's active vault and the stamp from the same snapshot.
         let tx = db.transaction()?;
-        let state = load_state(&tx)?;
+        let state = load_state(&tx, Some(incoming.vault_id()))?;
         let pending = state.prepare_authenticated_restore(incoming);
         let stamp = store_stamp(&tx, &pending.preview().vault_id)?;
         tx.commit()?;
@@ -292,7 +294,7 @@ fn committed_reservations_survive_reopen_even_when_the_snapshot_is_abandoned() {
     drop(reserve_durably(&mut open_database(&path).unwrap(), 1).unwrap());
 
     let mut db = open_database(&path).unwrap();
-    let reopened = load_state(&db).unwrap();
+    let reopened = load_state(&db, None).unwrap();
     assert!(reopened.active() == Some(&original));
     assert_eq!(reopened.highest_counter(FIXTURE_VAULT_ID), Some(7));
     let entropy = node_entropy();
@@ -332,7 +334,7 @@ fn failed_random_reads_keep_reserved_counters_after_reopen() {
         assert_eq!(reads, read_lengths[..=failed_read]);
         drop(db);
 
-        let reopened = load_state(&open_database(&path).unwrap()).unwrap();
+        let reopened = load_state(&open_database(&path).unwrap(), None).unwrap();
         assert!(reopened.active() == Some(&original));
         assert_eq!(
             reopened.highest_counter(FIXTURE_VAULT_ID),
@@ -393,7 +395,7 @@ fn retrying_a_partial_save_keeps_the_sealed_bytes_and_counter() {
     .unwrap();
     assert_eq!(std::fs::read(&destination).unwrap(), sealed);
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
-    let state = load_state(&db).unwrap();
+    let state = load_state(&db, None).unwrap();
     let phrase = synthetic_recovery_phrase(&entropy);
     let preview = state
         .prepare_restore(File::open(&destination).unwrap(), &phrase)
@@ -431,7 +433,7 @@ fn saved_export_restores_into_a_fresh_database_after_confirmation() {
             .unwrap();
     assert_eq!(pending.preview().history, RestoreHistory::NoLocalHistory);
     assert_eq!(pending.preview().export_counter, 7);
-    let before = load_state(&db).unwrap();
+    let before = load_state(&db, Some(FIXTURE_VAULT_ID)).unwrap();
     assert!(before.active().is_none());
     assert_eq!(before.highest_counter(FIXTURE_VAULT_ID), None);
 
@@ -440,7 +442,7 @@ fn saved_export_restores_into_a_fresh_database_after_confirmation() {
         .unwrap();
     drop(db);
     let db = open_database(&destination).unwrap();
-    let restored = load_state(&db).unwrap();
+    let restored = load_state(&db, None).unwrap();
     let mut expected = original;
     expected.export_counter = 7;
     expected.issued_at = 42;
@@ -488,7 +490,7 @@ fn preview_uses_counter_committed_during_file_read() {
     pending
         .confirm(&mut db, RestoreConfirmation::ReplaceOlderOrEqual)
         .unwrap();
-    assert!(load_state(&db).unwrap().active() == Some(&incoming));
+    assert!(load_state(&db, None).unwrap().active() == Some(&incoming));
 }
 
 #[test]
@@ -557,7 +559,7 @@ fn rejected_file_imports_preserve_the_stored_vault_and_history() {
         drop(db);
 
         let mut reopened = open_database(&database).unwrap();
-        let state = load_state(&reopened).unwrap();
+        let state = load_state(&reopened, None).unwrap();
         assert!(state.active() == Some(&original));
         assert_eq!(persisted_counter(&reopened, FIXTURE_VAULT_ID), 7);
         let tx = reopened.transaction().unwrap();
@@ -595,7 +597,7 @@ fn independent_database_connections_reserve_distinct_counters() {
     });
     counters.sort_unstable();
     assert_eq!(counters, [7, 8, 9, 10]);
-    let reopened = load_state(&open_database(&path).unwrap()).unwrap();
+    let reopened = load_state(&open_database(&path).unwrap(), None).unwrap();
     assert_eq!(reopened.highest_counter(FIXTURE_VAULT_ID), Some(10));
 }
 
@@ -606,11 +608,10 @@ fn fresh_store_and_an_unrelated_vault_have_independent_history() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("vault.sqlite");
     let other_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let unrelated_id = "cccccccccccccccccccccccccccccccc";
     let first = restore_fixture(FIXTURE_VAULT_ID, 9, 1);
     let second = restore_fixture(other_id, 3, 2);
     let mut db = initialise_database(&path).unwrap();
-    let entropy = node_entropy();
-    let phrase = synthetic_recovery_phrase(&entropy);
 
     for incoming in [&first, &second] {
         let pending = PendingFixtureRestore::prepare(&mut db, incoming).unwrap();
@@ -621,16 +622,28 @@ fn fresh_store_and_an_unrelated_vault_have_independent_history() {
     }
     drop(db);
 
-    let db = open_database(&path).unwrap();
-    let reopened = load_state(&db).unwrap();
+    let mut db = open_database(&path).unwrap();
+    let tx = db.transaction().unwrap();
+    write_counter(&tx, unrelated_id, 25).unwrap();
+    tx.commit().unwrap();
+
+    let reopened = load_state(&db, None).unwrap();
     assert!(reopened.active() == Some(&second));
+    assert_eq!(reopened.highest_counter(other_id), Some(3));
+    assert_eq!(reopened.highest_counter(FIXTURE_VAULT_ID), None);
+    assert_eq!(reopened.highest_counter(unrelated_id), None);
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 9);
     assert_eq!(persisted_counter(&db, other_id), 3);
-    let envelope = export(&first, &entropy).unwrap();
-    let pending = reopened
-        .prepare_restore(envelope.as_slice(), &phrase)
-        .unwrap();
+
+    let pending = PendingFixtureRestore::prepare(&mut db, &first).unwrap();
     assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
+    assert_eq!(pending.state.highest_counter(other_id), Some(3));
+    assert_eq!(pending.state.highest_counter(unrelated_id), None);
+    pending
+        .confirm(&mut db, RestoreConfirmation::ReplaceOlderOrEqual)
+        .unwrap();
+    assert_eq!(persisted_counter(&db, unrelated_id), 25);
+    assert_eq!(persisted_counter(&db, other_id), 3);
 }
 
 #[test]
@@ -666,7 +679,7 @@ fn interrupted_replacement_recovers_both_vault_and_counter_on_reopen() {
     );
 
     let mut db = open_database(&path).unwrap();
-    let reopened = load_state(&db).unwrap();
+    let reopened = load_state(&db, None).unwrap();
     assert!(reopened.active() == Some(&original));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 6);
 
@@ -678,7 +691,7 @@ fn interrupted_replacement_recovers_both_vault_and_counter_on_reopen() {
     drop(db);
 
     let db = open_database(&path).unwrap();
-    let reopened = load_state(&db).unwrap();
+    let reopened = load_state(&db, None).unwrap();
     assert!(reopened.active() == Some(&incoming));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 9);
 }
@@ -698,7 +711,7 @@ fn committed_rollback_keeps_the_highest_counter_on_disk() {
     drop(db);
 
     let mut db = open_database(&path).unwrap();
-    assert!(load_state(&db).unwrap().active() == Some(&older));
+    assert!(load_state(&db, None).unwrap().active() == Some(&older));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 10);
     let entropy = node_entropy();
     let next = reserve_durably(&mut db, 1).unwrap().seal(&entropy).unwrap();
@@ -744,7 +757,7 @@ fn a_committed_same_counter_replacement_requires_a_new_durable_preview() {
         stale.confirm(&mut db, RestoreConfirmation::ReplaceOlderOrEqual),
         Err(FixtureError::Confirm(ConfirmError::PreviewChanged))
     ));
-    assert!(load_state(&db).unwrap().active() == Some(&replacement));
+    assert!(load_state(&db, None).unwrap().active() == Some(&replacement));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
 }
 
@@ -782,7 +795,7 @@ fn a_counter_committed_after_sealing_invalidates_the_restore() {
             ConfirmError::RollbackAcknowledgementRequired
         ))
     ));
-    assert!(load_state(&db).unwrap().active() == Some(&original));
+    assert!(load_state(&db, None).unwrap().active() == Some(&original));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
 }
 
@@ -803,6 +816,6 @@ fn durable_preview_cannot_authorise_a_different_database_with_the_same_metadata(
         pending.confirm(&mut other, RestoreConfirmation::Replace),
         Err(FixtureError::Confirm(ConfirmError::PreviewChanged))
     ));
-    assert!(load_state(&other).unwrap().active() == Some(&original));
+    assert!(load_state(&other, None).unwrap().active() == Some(&original));
     assert_eq!(persisted_counter(&other, FIXTURE_VAULT_ID), 6);
 }
