@@ -76,8 +76,9 @@ fn initialise_database(path: &Path) -> rusqlite::Result<Connection> {
 
 fn seed_database(path: &Path, active: &SyntheticVault) -> Result<(), FixtureError> {
     let mut db = initialise_database(path)?;
+    let envelope = export(active, &fixture_key()).map_err(FixtureError::Envelope)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    write_replacement(&tx, active, active.export_counter)?;
+    write_replacement(&tx, &active.vault_id, active.export_counter, &envelope)?;
     tx.commit()?;
     Ok(())
 }
@@ -131,16 +132,16 @@ fn persisted_counter(db: &Connection, vault_id: &str) -> i64 {
 
 fn write_replacement(
     tx: &Transaction<'_>,
-    vault: &SyntheticVault,
+    vault_id: &str,
     highest: u64,
+    envelope: &[u8],
 ) -> Result<(), FixtureError> {
-    let encrypted = export(vault, &fixture_key()).map_err(FixtureError::Envelope)?;
     tx.execute(
         "INSERT INTO active_vault (slot, envelope) VALUES (1, ?1)
          ON CONFLICT(slot) DO UPDATE SET envelope = excluded.envelope",
-        [encrypted],
+        [envelope],
     )?;
-    write_counter(tx, &vault.vault_id, highest)?;
+    write_counter(tx, vault_id, highest)?;
     tx.execute(
         "UPDATE fixture_identity SET revision = revision + 1 WHERE slot = 1",
         [],
@@ -232,22 +233,13 @@ impl PendingFixtureRestore {
         db: &mut Connection,
         confirmation: RestoreConfirmation,
     ) -> Result<(), FixtureError> {
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        self.stage(&tx, confirmation)?;
-        tx.commit()?;
-        Ok(())
+        self.seal_replacement(confirmation)?.commit(db)
     }
 
-    // The caller holds the write transaction from the recheck through commit.
-    // Keep staging separate so the interrupted-writer test can exit before commit.
-    fn stage(
+    fn seal_replacement(
         mut self,
-        tx: &Transaction<'_>,
         confirmation: RestoreConfirmation,
-    ) -> Result<(), FixtureError> {
-        if store_stamp(tx, &self.preview().vault_id)? != self.stamp {
-            return Err(FixtureError::Confirm(ConfirmError::PreviewChanged));
-        }
+    ) -> Result<SealedFixtureRestore, FixtureError> {
         self.pending
             .confirm(&mut self.state, confirmation)
             .map_err(FixtureError::Confirm)?;
@@ -256,7 +248,37 @@ impl PendingFixtureRestore {
             .state
             .highest_counter(&active.vault_id)
             .expect("confirmation records its counter");
-        write_replacement(tx, active, highest)
+        let envelope = export(active, &fixture_key()).map_err(FixtureError::Envelope)?;
+        Ok(SealedFixtureRestore {
+            stamp: self.stamp,
+            vault_id: active.vault_id.clone(),
+            highest,
+            envelope,
+        })
+    }
+}
+
+struct SealedFixtureRestore {
+    stamp: StoreStamp,
+    vault_id: String,
+    highest: u64,
+    envelope: Vec<u8>,
+}
+
+impl SealedFixtureRestore {
+    fn commit(self, db: &mut Connection) -> Result<(), FixtureError> {
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.stage(&tx)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    // Keep staging separate so the interrupted writer can exit before commit.
+    fn stage(self, tx: &Transaction<'_>) -> Result<(), FixtureError> {
+        if store_stamp(tx, &self.vault_id)? != self.stamp {
+            return Err(FixtureError::Confirm(ConfirmError::PreviewChanged));
+        }
+        write_replacement(tx, &self.vault_id, self.highest, &self.envelope)
     }
 }
 
@@ -690,10 +712,13 @@ fn interrupt_fixture_writer() {
     let mut db = open_database(&path).unwrap();
     let pending =
         PendingFixtureRestore::prepare(&mut db, &restore_fixture(FIXTURE_VAULT_ID, 9, 2)).unwrap();
+    let replacement = pending
+        .seal_replacement(RestoreConfirmation::Replace)
+        .unwrap();
     let tx = db
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .unwrap();
-    pending.stage(&tx, RestoreConfirmation::Replace).unwrap();
+    replacement.stage(&tx).unwrap();
     tx.cache_flush().unwrap();
     // Exit without running Rust or SQLite destructors and without committing.
     std::process::exit(INTERRUPTED_EXIT);
@@ -724,7 +749,7 @@ fn a_committed_same_counter_replacement_requires_a_new_durable_preview() {
 }
 
 #[test]
-fn a_committed_reservation_requires_a_new_durable_preview_for_that_vault() {
+fn a_counter_committed_after_sealing_invalidates_the_restore() {
     use super::restore::RestoreHistory;
 
     let directory = tempfile::tempdir().unwrap();
@@ -738,12 +763,15 @@ fn a_committed_reservation_requires_a_new_durable_preview_for_that_vault() {
         stale.preview().history,
         RestoreHistory::HigherCounterFreshnessUnknown
     );
+    let replacement = stale
+        .seal_replacement(RestoreConfirmation::Replace)
+        .unwrap();
 
     let mut writer = open_database(&path).unwrap();
     drop(reserve_durably(&mut writer, 1).unwrap());
 
     assert!(matches!(
-        stale.confirm(&mut db, RestoreConfirmation::Replace),
+        replacement.commit(&mut db),
         Err(FixtureError::Confirm(ConfirmError::PreviewChanged))
     ));
     let fresh = PendingFixtureRestore::prepare(&mut db, &incoming).unwrap();
