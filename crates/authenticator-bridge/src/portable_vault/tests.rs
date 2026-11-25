@@ -579,7 +579,7 @@ fn restore_reader_stops_at_the_first_byte_over_the_limit() {
     let oversized = envelope.as_slice().chain(&mut trailing);
     assert_eq!(
         state.prepare_restore(oversized, &phrase).err(),
-        Some(PreviewError::InvalidExport(ExportError::InvalidSize))
+        Some(PreviewError::InvalidFile)
     );
     assert_eq!(trailing.limit(), 63);
 }
@@ -633,18 +633,14 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
         state
             .prepare_restore(envelope.as_slice(), &wrong_phrase)
             .err(),
-        Some(PreviewError::InvalidExport(
-            ExportError::AuthenticationFailed
-        ))
+        Some(PreviewError::CannotOpen)
     );
     for offset in [WRAPPED_KEY_END, envelope.len() - 1] {
         let mut tampered = envelope.clone();
         tampered[offset] ^= 1;
         assert_eq!(
             state.prepare_restore(tampered.as_slice(), &phrase).err(),
-            Some(PreviewError::InvalidExport(
-                ExportError::AuthenticationFailed
-            ))
+            Some(PreviewError::CannotOpen)
         );
     }
     let invalid_payload = seal(
@@ -657,7 +653,7 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
         state
             .prepare_restore(invalid_payload.as_slice(), &phrase)
             .err(),
-        Some(PreviewError::InvalidExport(ExportError::InvalidPayload))
+        Some(PreviewError::InvalidFile)
     );
 }
 
@@ -696,9 +692,7 @@ fn recovery_rotation_preserves_old_exports_and_local_history() {
             destination
                 .prepare_restore(envelope.as_slice(), wrong_phrase)
                 .err(),
-            Some(PreviewError::InvalidExport(
-                ExportError::AuthenticationFailed
-            ))
+            Some(PreviewError::CannotOpen)
         );
     }
     assert!(destination.active().is_none());
