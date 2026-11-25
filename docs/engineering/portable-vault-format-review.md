@@ -76,6 +76,15 @@ test starts its own child fixture.
 cargo test -p authenticator-bridge --locked portable_vault
 ```
 
+The populated vector is also checked by an independent reader that uses
+Node.js built-ins from a public checkout. It authenticates both parts of the
+envelope and checks the exact plaintext bytes against the same synthetic
+fixture used by Rust. [Populated vector](../../crates/authenticator-bridge/src/portable_vault/fixtures/populated-vault.json)
+
+```sh
+node scripts/check-portable-vault-vector.mjs
+```
+
 ## Nonce collision estimate for review
 
 Count two 96-bit nonce draws per sealing attempt across all installations
