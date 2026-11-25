@@ -69,6 +69,12 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   decoding can still use parser scratch space. Scratch buffers, identifiers
   and native copies still need review.
   [Payload types](../../crates/authenticator-bridge/src/portable_vault/payload.rs)
+- **Reserved export snapshots.** An export reservation owns its counter and
+  issue date and shares the selected immutable project records. A later
+  restore can replace the active vault while the reservation keeps the
+  original records. The name and label buffers clear when their last owner
+  drops.
+  [Payload types](../../crates/authenticator-bridge/src/portable_vault/payload.rs) · [Reservation tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Decoded identifiers.** The parser checks the existing identifier syntax
   before creating an owned identifier. It checks sibling uniqueness during
   vault validation. Preview and counter history still retain their own

@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Write};
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use serde::de::{
     self, value::MapAccessDeserializer, DeserializeSeed, MapAccess, SeqAccess, Visitor,
@@ -25,10 +26,11 @@ pub(super) struct SyntheticVault {
     pub(super) vault_id: String,
     pub(super) export_counter: u64,
     pub(super) issued_at: u64,
-    projects: Records<Project, MAX_PROJECTS>,
+    // Export reservations share the selected records and own their own metadata.
+    projects: Arc<Records<Project, MAX_PROJECTS>>,
 }
 
-#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Project {
     #[serde(deserialize_with = "deserialize_id")]
@@ -37,7 +39,7 @@ struct Project {
     instances: Records<Instance, MAX_INSTANCES_PER_PROJECT>,
 }
 
-#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Instance {
     #[serde(deserialize_with = "deserialize_id")]
@@ -46,7 +48,7 @@ struct Instance {
     entries: Records<Entry, MAX_ENTRIES_PER_INSTANCE>,
 }
 
-#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Entry {
     #[serde(deserialize_with = "deserialize_id")]
@@ -56,7 +58,7 @@ struct Entry {
 
 // Wrap each string as it is decoded so completed fields are cleared even if
 // a later field prevents the record from being constructed.
-#[derive(Clone, Serialize)]
+#[derive(Serialize)]
 #[serde(transparent)]
 struct RecordText(Zeroizing<String>);
 
@@ -114,11 +116,22 @@ fn decoded_names_and_labels_use_clearing_buffers() {
     }
 
     let mut vault = restore_fixture("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1, 1);
-    let project = &mut vault.projects.0[0];
+    let project = &mut Arc::get_mut(&mut vault.projects).unwrap().0[0];
     check_buffer(&mut project.name.0);
     let instance = &mut project.instances.0[0];
     check_buffer(&mut instance.name.0);
     check_buffer(&mut instance.entries.0[0].label.0);
+}
+
+#[test]
+fn snapshot_clone_shares_project_records() {
+    use super::tests::restore_fixture;
+
+    let vault = restore_fixture("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1, 1);
+    let mut snapshot = vault.clone();
+    snapshot.export_counter = 2;
+    assert!(Arc::ptr_eq(&vault.projects, &snapshot.projects));
+    assert_eq!(vault.export_counter, 1);
 }
 
 impl SyntheticVault {
@@ -286,7 +299,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for JsonObject<T> {
     }
 }
 
-#[derive(Clone, Serialize, PartialEq, Eq)]
+#[derive(Serialize, PartialEq, Eq)]
 #[serde(transparent)]
 struct Records<T, const LIMIT: usize>(Vec<T>);
 
