@@ -98,16 +98,17 @@ fn seal(
     let mut envelope = Vec::with_capacity(OVERHEAD + payload.len());
     envelope.extend_from_slice(HEADER);
     envelope.extend_from_slice(&randomness.salt);
-    let prk = extract(&randomness.salt, entropy);
-    let wrapping_key = expand(&prk);
     let mut wrapped_key = randomness.data_key.clone();
-    let wrap_tag = cipher(&wrapping_key)
-        .encrypt_in_place_detached(
-            Nonce::from_slice(&randomness.wrap_nonce),
-            &envelope,
-            &mut wrapped_key[..],
-        )
-        .map_err(|_| ExportError::EncryptionFailed)?;
+    let wrap_tag = {
+        let wrapping_key = expand(&extract(&randomness.salt, entropy));
+        cipher(&wrapping_key)
+            .encrypt_in_place_detached(
+                Nonce::from_slice(&randomness.wrap_nonce),
+                &envelope,
+                &mut wrapped_key[..],
+            )
+            .map_err(|_| ExportError::EncryptionFailed)?
+    };
     envelope.extend_from_slice(&randomness.wrap_nonce);
     envelope.extend_from_slice(&wrapped_key[..]);
     envelope.extend_from_slice(&wrap_tag);
@@ -150,18 +151,19 @@ impl<'a> FramedEnvelope<'a> {
 
     fn decrypt(self, entropy: &SecretKey) -> Result<Zeroizing<Vec<u8>>, ExportError> {
         let envelope = self.0;
-        let prk = extract(&envelope[HEADER.len()..SALT_END], entropy);
-        let wrapping_key = expand(&prk);
         let mut data_key = Zeroizing::new([0; KEY_BYTES]);
         data_key.copy_from_slice(&envelope[WRAP_NONCE_END..WRAPPED_KEY_END]);
-        cipher(&wrapping_key)
-            .decrypt_in_place_detached(
-                Nonce::from_slice(&envelope[SALT_END..WRAP_NONCE_END]),
-                &envelope[..SALT_END],
-                &mut data_key[..],
-                Tag::from_slice(&envelope[WRAPPED_KEY_END..WRAP_END]),
-            )
-            .map_err(|_| ExportError::AuthenticationFailed)?;
+        {
+            let wrapping_key = expand(&extract(&envelope[HEADER.len()..SALT_END], entropy));
+            cipher(&wrapping_key)
+                .decrypt_in_place_detached(
+                    Nonce::from_slice(&envelope[SALT_END..WRAP_NONCE_END]),
+                    &envelope[..SALT_END],
+                    &mut data_key[..],
+                    Tag::from_slice(&envelope[WRAPPED_KEY_END..WRAP_END]),
+                )
+                .map_err(|_| ExportError::AuthenticationFailed)?;
+        }
 
         let tag_start = envelope.len() - TAG_BYTES;
         let mut payload = Zeroizing::new(envelope[PAYLOAD_START..tag_start].to_vec());
