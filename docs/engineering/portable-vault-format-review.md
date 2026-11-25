@@ -54,6 +54,9 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   The host fixture finishes file reads and authentication before taking a
   database snapshot for the preview. It sees counter updates committed
   during the read and checks the snapshot again at confirmation.
+  It drops the old vault's decoded records before returning the preview.
+  While awaiting confirmation it retains the incoming record tree and
+  the metadata needed to check the write.
   After the user confirms, the fixture seals the replacement before taking
   the write lock. A counter change after sealing still invalidates it.
   Counter lookups read only the active vault's history for reservations
