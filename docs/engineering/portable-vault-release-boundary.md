@@ -18,10 +18,14 @@ entry points remain alongside the TOTP function and the bridge smoke function.
 
 The check reads Cargo's recorded source inputs and normal dependency graph for
 each mobile target. The bridge's direct `tempfile` dependency is test-only.
-UniFFI also depends on `tempfile` transitively. The check compares the UniFFI
-entry points in each packaged iOS static archive and Android shared library
-with those in the generated Swift, C and Kotlin bindings. Update the expected
-entry points when the bridge interface changes deliberately.
+UniFFI also depends on `tempfile` transitively. The check also rejects
+test-only features on shared dependencies. These are the `zeroize` features
+on AES, AES-GCM and SHA-2, `rc` on Serde and `serde` on Zeroize.
+
+The check compares the UniFFI entry points in each packaged iOS static
+archive and Android shared library with those in the generated Swift, C and
+Kotlin bindings. Update the expected entry points when the bridge interface
+changes deliberately.
 
 ## Buffer ownership at the current boundary
 
