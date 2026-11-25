@@ -19,6 +19,15 @@ pub(super) fn node_entropy() -> SecretKey {
 }
 
 #[test]
+fn aes_round_keys_use_clearing_on_drop() {
+    use aes_gcm::{aead::consts::U12, AesGcm};
+
+    fn requires_clearing_on_drop<Aes: zeroize::ZeroizeOnDrop>(_: &AesGcm<Aes, U12>) {}
+
+    requires_clearing_on_drop(&cipher(&node_entropy()));
+}
+
+#[test]
 fn exports_same_synthetic_vault_with_fresh_randomness() {
     let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let entropy = Zeroizing::new([0x23; KEY_BYTES]);
