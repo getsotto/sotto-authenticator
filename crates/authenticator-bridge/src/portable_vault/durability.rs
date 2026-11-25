@@ -37,6 +37,8 @@ enum FixtureError {
     Confirm(ConfirmError),
     #[error("fixture export reservation failed: {0:?}")]
     Reserve(ReserveExportError),
+    #[error("active vault changed before export reservation")]
+    ActiveVaultChanged,
     #[error("fixture counter is outside the supported range")]
     InvalidCounter,
 }
@@ -104,13 +106,16 @@ fn load_state(db: &Connection, incoming_id: Option<&str>) -> Result<RestoreState
     let mut highest_counters = BTreeMap::new();
     for row in rows {
         let (id, counter) = row?;
-        let counter = u64::try_from(counter).map_err(|_| FixtureError::InvalidCounter)?;
-        if !(1..=MAX_JSON_INTEGER).contains(&counter) {
-            return Err(FixtureError::InvalidCounter);
-        }
-        highest_counters.insert(id, counter);
+        highest_counters.insert(id, validate_counter(counter)?);
     }
     Ok(RestoreState::new(active, highest_counters))
+}
+
+fn validate_counter(counter: i64) -> Result<u64, FixtureError> {
+    u64::try_from(counter)
+        .ok()
+        .filter(|counter| (1..=MAX_JSON_INTEGER).contains(counter))
+        .ok_or(FixtureError::InvalidCounter)
 }
 
 fn write_counter(tx: &Transaction<'_>, vault_id: &str, highest: u64) -> Result<(), FixtureError> {
@@ -152,28 +157,73 @@ fn write_replacement(
 }
 
 fn reserve_durably(db: &mut Connection, issued_at: u64) -> Result<ReservedExport, FixtureError> {
-    // Take the write lock before reading the counter so two connections cannot
-    // reserve the same value. Return the snapshot only after commit succeeds.
-    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let mut state = load_state(&tx, None)?;
-    let reservation = state
-        .reserve_export(issued_at)
-        .map_err(FixtureError::Reserve)?;
-    let active = state
-        .active()
-        .expect("reservation requires an active vault");
-    let highest = state
-        .highest_counter(&active.vault_id)
-        .expect("reservation records its counter");
-    write_counter(&tx, &active.vault_id, highest)?;
-    tx.commit()?;
-    Ok(reservation)
+    ActiveExportSnapshot::read(db)?.reserve(db, issued_at)
+}
+
+#[derive(PartialEq, Eq)]
+struct StoreVersion {
+    id: Vec<u8>,
+    revision: i64,
+}
+
+struct ActiveExportSnapshot {
+    version: StoreVersion,
+    vault: SyntheticVault,
+}
+
+impl ActiveExportSnapshot {
+    fn read(db: &Connection) -> Result<Self, FixtureError> {
+        // One statement reads the envelope and revision from the same snapshot.
+        let (version, envelope): (StoreVersion, Option<Vec<u8>>) = db.query_row(
+            "SELECT store_id, revision, (SELECT envelope FROM active_vault WHERE slot = 1)
+             FROM fixture_identity WHERE slot = 1",
+            [],
+            |row| {
+                Ok((
+                    StoreVersion {
+                        id: row.get(0)?,
+                        revision: row.get(1)?,
+                    },
+                    row.get(2)?,
+                ))
+            },
+        )?;
+        let envelope = envelope.ok_or(FixtureError::Reserve(ReserveExportError::NoActiveVault))?;
+        let vault = open(&envelope, &fixture_key()).map_err(FixtureError::Envelope)?;
+        Ok(Self { version, vault })
+    }
+
+    fn reserve(self, db: &mut Connection, issued_at: u64) -> Result<ReservedExport, FixtureError> {
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let stamp = store_stamp(&tx, &self.vault.vault_id)?;
+        if stamp.version != self.version {
+            return Err(FixtureError::ActiveVaultChanged);
+        }
+
+        // Use the counter at commit time. Another reservation may have advanced it.
+        let mut counters = BTreeMap::new();
+        if let Some(counter) = stamp.incoming_counter {
+            counters.insert(self.vault.vault_id.clone(), validate_counter(counter)?);
+        }
+        let mut state = RestoreState::new(Some(self.vault), counters);
+        let reservation = state
+            .reserve_export(issued_at)
+            .map_err(FixtureError::Reserve)?;
+        let active = state
+            .active()
+            .expect("reservation requires an active vault");
+        let highest = state
+            .highest_counter(&active.vault_id)
+            .expect("reservation records its counter");
+        write_counter(&tx, &active.vault_id, highest)?;
+        tx.commit()?;
+        Ok(reservation)
+    }
 }
 
 #[derive(PartialEq, Eq)]
 struct StoreStamp {
-    id: Vec<u8>,
-    revision: i64,
+    version: StoreVersion,
     incoming_counter: Option<i64>,
 }
 
@@ -184,8 +234,10 @@ fn store_stamp(tx: &Transaction<'_>, incoming_id: &str) -> rusqlite::Result<Stor
         [incoming_id],
         |row| {
             Ok(StoreStamp {
-                id: row.get(0)?,
-                revision: row.get(1)?,
+                version: StoreVersion {
+                    id: row.get(0)?,
+                    revision: row.get(1)?,
+                },
                 incoming_counter: row.get(2)?,
             })
         },
@@ -565,6 +617,37 @@ fn rejected_file_imports_preserve_the_stored_vault_and_history() {
         let tx = reopened.transaction().unwrap();
         assert!(store_stamp(&tx, FIXTURE_VAULT_ID).unwrap() == before);
     }
+}
+
+#[test]
+fn export_reservation_rejects_a_replaced_snapshot_with_the_same_counter() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("vault.sqlite");
+    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
+    let replacement = restore_fixture(FIXTURE_VAULT_ID, 6, 2);
+    seed_database(&database, &original).unwrap();
+    let mut db = open_database(&database).unwrap();
+    let snapshot = ActiveExportSnapshot::read(&db).unwrap();
+
+    let mut writer = open_database(&database).unwrap();
+    PendingFixtureRestore::prepare(&mut writer, &replacement)
+        .unwrap()
+        .confirm(&mut writer, RestoreConfirmation::ReplaceOlderOrEqual)
+        .unwrap();
+
+    assert!(matches!(
+        snapshot.reserve(&mut db, 1),
+        Err(FixtureError::ActiveVaultChanged)
+    ));
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 6);
+
+    let entropy = node_entropy();
+    let sealed = reserve_durably(&mut db, 2).unwrap().seal(&entropy).unwrap();
+    let mut expected = replacement;
+    expected.export_counter = 7;
+    expected.issued_at = 2;
+    assert!(open(&sealed, &entropy).unwrap() == expected);
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
 }
 
 #[test]

@@ -59,6 +59,10 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   Counter lookups read only the active vault's history for reservations
   and the active and incoming histories for restore previews. The fixture
   preserves unrelated counters on disk.
+  Export reservation decodes the selected vault before taking the write lock.
+  The fixture rechecks the store and vault revision under the lock and uses
+  the latest counter. If a replacement changed the revision, a new
+  reservation must select the active vault again.
   [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
 - **Restore preview errors.** The Rust preview groups invalid size,
   malformed framing and invalid authenticated records as an invalid file.
