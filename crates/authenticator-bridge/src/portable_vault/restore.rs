@@ -231,18 +231,35 @@ impl PendingRestore {
         {
             return Err(ConfirmError::PreviewChanged);
         }
+
+        let (vault, highest) = self.into_replacement(confirmation)?;
+        // Exclusive access makes this one in-memory transition. A persistent
+        // implementation must commit the vault and counter in one transaction.
+        state
+            .highest_counters
+            .insert(vault.vault_id.clone(), highest);
+        state.active = Some(vault);
+        state.active_generation = Arc::new(());
+        Ok(())
+    }
+
+    /// Apply the confirmation choice to the previewed snapshot. The caller
+    /// must recheck that snapshot against its store before applying the result.
+    pub(super) fn into_replacement(
+        self,
+        confirmation: RestoreConfirmation,
+    ) -> Result<(SyntheticVault, u64), ConfirmError> {
         if self.preview.history == RestoreHistory::OlderOrEqual
             && confirmation != RestoreConfirmation::ReplaceOlderOrEqual
         {
             return Err(ConfirmError::RollbackAcknowledgementRequired);
         }
 
-        // Exclusive access makes this one in-memory transition. A persistent
-        // implementation must commit the vault and counter in one transaction.
-        record_counter(&mut state.highest_counters, &self.vault);
-        state.active = Some(self.vault);
-        state.active_generation = Arc::new(());
-        Ok(())
+        let highest = self
+            .known_counter
+            .unwrap_or_default()
+            .max(self.vault.export_counter);
+        Ok((self.vault, highest))
     }
 }
 
