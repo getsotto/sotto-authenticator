@@ -39,6 +39,11 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   initialisation. The retained GHASH state and other library or compiler
   copies still need review.
   [Test dependency features](../../crates/authenticator-bridge/Cargo.toml)
+- **Wrapping key derivation.** The extracted key clears after expansion and
+  the wrapping key clears before payload encryption or decryption. Test
+  builds enable clearing for the SHA-256 core state used by HMAC. Temporary
+  HMAC key blocks and other library copies still need review.
+  [Key derivation](../../crates/authenticator-bridge/src/portable_vault.rs)
 - **Recovery rotation.** A host test seals a second export with a different
   phrase. Each file opens with its own phrase. After restoring the newer
   export, the older file still requires rollback acknowledgement and
