@@ -27,5 +27,6 @@ aes-gcm = { version = "0.10", features = ["zeroize"] }
 bip39 = { version = "3.0.0", default-features = false, features = ["zeroize"] }
 rusqlite = { version = "0.43.0", default-features = false, features = ["bundled"] }
 serde = { version = "1", features = ["rc"] }
+sha2 = { version = "0.11", features = ["zeroize"] }
 tempfile = "3"
 zeroize = { version = "1", features = ["serde"] }

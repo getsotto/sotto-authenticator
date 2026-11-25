@@ -28,6 +28,13 @@ fn aes_round_keys_use_clearing_on_drop() {
 }
 
 #[test]
+fn hkdf_hash_state_uses_clearing_on_drop() {
+    fn requires_clearing_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+
+    requires_clearing_on_drop::<Sha256>();
+}
+
+#[test]
 fn exports_same_synthetic_vault_with_fresh_randomness() {
     let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     let entropy = Zeroizing::new([0x23; KEY_BYTES]);
