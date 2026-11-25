@@ -246,7 +246,6 @@ fn store_stamp(tx: &Transaction<'_>, incoming_id: &str) -> rusqlite::Result<Stor
 
 struct PendingFixtureRestore {
     stamp: StoreStamp,
-    state: RestoreState,
     pending: PendingRestore,
 }
 
@@ -267,15 +266,11 @@ impl PendingFixtureRestore {
         let incoming = AuthenticatedExport::read(reader, phrase).map_err(FixtureError::Preview)?;
         // Read the preview's active vault and the stamp from the same snapshot.
         let tx = db.transaction()?;
-        let state = load_state(&tx, Some(incoming.vault_id()))?;
-        let pending = state.prepare_authenticated_restore(incoming);
+        let pending =
+            load_state(&tx, Some(incoming.vault_id()))?.prepare_authenticated_restore(incoming);
         let stamp = store_stamp(&tx, &pending.preview().vault_id)?;
         tx.commit()?;
-        Ok(Self {
-            stamp,
-            state,
-            pending,
-        })
+        Ok(Self { stamp, pending })
     }
 
     fn preview(&self) -> &RestorePreview {
@@ -291,21 +286,17 @@ impl PendingFixtureRestore {
     }
 
     fn seal_replacement(
-        mut self,
+        self,
         confirmation: RestoreConfirmation,
     ) -> Result<SealedFixtureRestore, FixtureError> {
-        self.pending
-            .confirm(&mut self.state, confirmation)
+        let (vault, highest) = self
+            .pending
+            .into_replacement(confirmation)
             .map_err(FixtureError::Confirm)?;
-        let active = self.state.active().expect("confirmation installs a vault");
-        let highest = self
-            .state
-            .highest_counter(&active.vault_id)
-            .expect("confirmation records its counter");
-        let envelope = export(active, &fixture_key()).map_err(FixtureError::Envelope)?;
+        let envelope = export(&vault, &fixture_key()).map_err(FixtureError::Envelope)?;
         Ok(SealedFixtureRestore {
             stamp: self.stamp,
-            vault_id: active.vault_id.clone(),
+            vault_id: vault.vault_id,
             highest,
             envelope,
         })
@@ -720,8 +711,9 @@ fn fresh_store_and_an_unrelated_vault_have_independent_history() {
 
     let pending = PendingFixtureRestore::prepare(&mut db, &first).unwrap();
     assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
-    assert_eq!(pending.state.highest_counter(other_id), Some(3));
-    assert_eq!(pending.state.highest_counter(unrelated_id), None);
+    let preview_state = load_state(&db, Some(FIXTURE_VAULT_ID)).unwrap();
+    assert_eq!(preview_state.highest_counter(other_id), Some(3));
+    assert_eq!(preview_state.highest_counter(unrelated_id), None);
     pending
         .confirm(&mut db, RestoreConfirmation::ReplaceOlderOrEqual)
         .unwrap();
