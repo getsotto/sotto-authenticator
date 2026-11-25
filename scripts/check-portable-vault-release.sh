@@ -25,10 +25,19 @@ check_target() {
   local build_inputs="target/$target/release/libauthenticator_bridge.d"
   local dependencies
   dependencies="$(cargo tree --locked -p authenticator-bridge --target "$target" \
-    --edges normal --prefix depth --format ' {p}')"
+    --edges normal --prefix depth --format ' {p} [{f}]')"
   # UniFFI already brings in tempfile. Only the bridge's direct use is test-only.
   if grep -E '^([0-9]+ (bip39|rusqlite|libsqlite3-sys)|1 tempfile) ' <<< "$dependencies"; then
     echo "Portable vault test dependency in $target" >&2
+    return 1
+  fi
+
+  # The mobile bridge uses these crates too. Keep the fixture-only features out.
+  if grep -E \
+    -e '^[0-9]+ (aes|aes-gcm|sha2) v[^ ]+ \[([^]]*,)?zeroize(,|])' \
+    -e '^[0-9]+ serde v[^ ]+ \[([^]]*,)?rc(,|])' \
+    -e '^[0-9]+ zeroize v[^ ]+ \[([^]]*,)?serde(,|])' <<< "$dependencies"; then
+    echo "Portable vault test dependency feature in $target" >&2
     return 1
   fi
 
