@@ -34,6 +34,11 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   before decryption and clears the owned entropy before decoding records.
   The caller still owns the original phrase input.
   [Restore implementation](../../crates/authenticator-bridge/src/portable_vault/restore.rs)
+- **Cipher key material.** Test builds enable clearing of the AES round
+  keys on drop and the temporary GHASH key used during AES-GCM
+  initialisation. The retained GHASH state and other library or compiler
+  copies still need review.
+  [Test dependency features](../../crates/authenticator-bridge/Cargo.toml)
 - **Recovery rotation.** A host test seals a second export with a different
   phrase. Each file opens with its own phrase. After restoring the newer
   export, the older file still requires rollback acknowledgement and
