@@ -12,8 +12,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 
 use super::payload::MAX_JSON_INTEGER;
 use super::restore::{
-    ConfirmError, PendingRestore, PreviewError, ReserveExportError, ReservedExport,
-    RestoreConfirmation, RestorePreview, RestoreState,
+    AuthenticatedExport, ConfirmError, PendingRestore, PreviewError, ReserveExportError,
+    ReservedExport, RestoreConfirmation, RestorePreview, RestoreState,
 };
 use super::tests::{node_entropy, restore_fixture, synthetic_recovery_phrase};
 use super::{
@@ -208,12 +208,12 @@ impl PendingFixtureRestore {
         reader: impl Read,
         phrase: &str,
     ) -> Result<Self, FixtureError> {
+        // File I/O and authentication can run before taking a database snapshot.
+        let incoming = AuthenticatedExport::read(reader, phrase).map_err(FixtureError::Preview)?;
         // Read the preview's active vault and the stamp from the same snapshot.
         let tx = db.transaction()?;
         let state = load_state(&tx)?;
-        let pending = state
-            .prepare_restore(reader, phrase)
-            .map_err(FixtureError::Preview)?;
+        let pending = state.prepare_authenticated_restore(incoming);
         let stamp = store_stamp(&tx, &pending.preview().vault_id)?;
         tx.commit()?;
         Ok(Self {
@@ -424,6 +424,49 @@ fn saved_export_restores_into_a_fresh_database_after_confirmation() {
     expected.issued_at = 42;
     assert!(restored.active() == Some(&expected));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
+}
+
+#[test]
+fn preview_uses_counter_committed_during_file_read() {
+    use super::restore::RestoreHistory;
+
+    struct ReserveOnFirstRead<'a> {
+        envelope: &'a [u8],
+        writer: Option<Connection>,
+    }
+
+    impl Read for ReserveOnFirstRead<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if let Some(mut writer) = self.writer.take() {
+                reserve_durably(&mut writer, 1)
+                    .expect("reservation should commit during a file read");
+            }
+            self.envelope.read(buffer)
+        }
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("vault.sqlite");
+    seed_database(&database, &restore_fixture(FIXTURE_VAULT_ID, 6, 1)).unwrap();
+    let mut db = open_database(&database).unwrap();
+    let writer = open_database(&database).unwrap();
+    writer.busy_timeout(Duration::ZERO).unwrap();
+    let entropy = node_entropy();
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let incoming = restore_fixture(FIXTURE_VAULT_ID, 7, 2);
+    let sealed = export(&incoming, &entropy).unwrap();
+    let reader = ReserveOnFirstRead {
+        envelope: &sealed,
+        writer: Some(writer),
+    };
+
+    let pending = PendingFixtureRestore::prepare_from_reader(&mut db, reader, &phrase).unwrap();
+    assert_eq!(pending.preview().history, RestoreHistory::OlderOrEqual);
+    assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
+    pending
+        .confirm(&mut db, RestoreConfirmation::ReplaceOlderOrEqual)
+        .unwrap();
+    assert!(load_state(&db).unwrap().active() == Some(&incoming));
 }
 
 #[test]

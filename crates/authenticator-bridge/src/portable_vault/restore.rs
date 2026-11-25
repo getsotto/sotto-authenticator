@@ -85,6 +85,31 @@ impl ReservedExport {
     }
 }
 
+/// Records from a complete export that passed authentication and schema validation.
+pub(super) struct AuthenticatedExport(SyntheticVault);
+
+impl AuthenticatedExport {
+    pub(super) fn read(reader: impl Read, phrase: &str) -> Result<Self, PreviewError> {
+        let phrase = RecoveryPhrase::parse(phrase).map_err(|_| PreviewError::InvalidPhrase)?;
+        // Read one extra byte so a valid prefix cannot hide an oversized file.
+        let mut envelope = Vec::new();
+        reader
+            .take((MAX_ENVELOPE_BYTES + 1) as u64)
+            .read_to_end(&mut envelope)
+            .map_err(|_| PreviewError::ReadFailed)?;
+        let framed = FramedEnvelope::parse(&envelope)?;
+        let payload = {
+            let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
+            drop(phrase);
+            framed.decrypt(&entropy)?
+        };
+        Ok(Self(SyntheticVault::from_bytes(
+            &payload,
+            MAX_PLAINTEXT_BYTES,
+        )?))
+    }
+}
+
 pub(super) struct RestoreState {
     active: Option<SyntheticVault>,
     highest_counters: BTreeMap<String, u64>,
@@ -148,21 +173,13 @@ impl RestoreState {
         reader: impl Read,
         phrase: &str,
     ) -> Result<PendingRestore, PreviewError> {
-        let phrase = RecoveryPhrase::parse(phrase).map_err(|_| PreviewError::InvalidPhrase)?;
-        // Read one extra byte so a valid prefix cannot hide an oversized file.
-        let mut envelope = Vec::new();
-        reader
-            .take((MAX_ENVELOPE_BYTES + 1) as u64)
-            .read_to_end(&mut envelope)
-            .map_err(|_| PreviewError::ReadFailed)?;
-        let framed = FramedEnvelope::parse(&envelope)?;
-        let payload = {
-            let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
-            drop(phrase);
-            framed.decrypt(&entropy)?
-        };
-        let vault = SyntheticVault::from_bytes(&payload, MAX_PLAINTEXT_BYTES)?;
-        drop(payload);
+        Ok(self.prepare_authenticated_restore(AuthenticatedExport::read(reader, phrase)?))
+    }
+
+    pub(super) fn prepare_authenticated_restore(
+        &self,
+        AuthenticatedExport(vault): AuthenticatedExport,
+    ) -> PendingRestore {
         let known_counter = self.highest_counter(&vault.vault_id);
         let history = match known_counter {
             None => RestoreHistory::NoLocalHistory,
@@ -175,12 +192,12 @@ impl RestoreState {
             export_counter: vault.export_counter,
             history,
         };
-        Ok(PendingRestore {
+        PendingRestore {
             vault,
             preview,
             known_counter,
             active_generation: Arc::clone(&self.active_generation),
-        })
+        }
     }
 }
 
