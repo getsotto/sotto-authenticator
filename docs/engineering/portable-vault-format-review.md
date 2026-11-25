@@ -54,6 +54,8 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   The host fixture finishes file reads and authentication before taking a
   database snapshot for the preview. It sees counter updates committed
   during the read and checks the snapshot again at confirmation.
+  After the user confirms, the fixture seals the replacement before taking
+  the write lock. A counter change after sealing still invalidates it.
   [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
 - **Restore preview errors.** The Rust preview groups invalid size,
   malformed framing and invalid authenticated records as an invalid file.
