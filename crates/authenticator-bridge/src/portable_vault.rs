@@ -82,12 +82,12 @@ fn export_with_randomness(
     entropy: &SecretKey,
     generate: impl FnOnce() -> Result<ExportRandomness, ExportError>,
 ) -> Result<Vec<u8>, ExportError> {
-    let mut payload = vault.to_bytes(MAX_PLAINTEXT_BYTES)?;
-    seal(&mut payload, entropy, generate()?)
+    let envelope = vault.encode(MAX_PLAINTEXT_BYTES, PAYLOAD_START, TAG_BYTES)?;
+    seal_encoded(envelope, entropy, generate()?)
 }
 
 fn seal(
-    payload: &mut [u8],
+    payload: &[u8],
     entropy: &SecretKey,
     randomness: ExportRandomness,
 ) -> Result<Vec<u8>, ExportError> {
@@ -95,35 +95,46 @@ fn seal(
         return Err(ExportError::InvalidSize);
     }
 
-    let mut envelope = Vec::with_capacity(OVERHEAD + payload.len());
-    envelope.extend_from_slice(HEADER);
-    envelope.extend_from_slice(&randomness.salt);
+    let mut envelope = Zeroizing::new(vec![0; OVERHEAD + payload.len()]);
+    envelope[PAYLOAD_START..PAYLOAD_START + payload.len()].copy_from_slice(payload);
+    seal_encoded(envelope, entropy, randomness)
+}
+
+fn seal_encoded(
+    mut envelope: Zeroizing<Vec<u8>>,
+    entropy: &SecretKey,
+    randomness: ExportRandomness,
+) -> Result<Vec<u8>, ExportError> {
+    let (prefix, body) = envelope.split_at_mut(PAYLOAD_START);
+    let (payload, tag) = body.split_at_mut(body.len() - TAG_BYTES);
+    prefix[..HEADER.len()].copy_from_slice(HEADER);
+    prefix[HEADER.len()..SALT_END].copy_from_slice(&randomness.salt);
     let mut wrapped_key = randomness.data_key.clone();
     let wrap_tag = {
         let wrapping_key = expand(&extract(&randomness.salt, entropy));
         cipher(&wrapping_key)
             .encrypt_in_place_detached(
                 Nonce::from_slice(&randomness.wrap_nonce),
-                &envelope,
+                &prefix[..SALT_END],
                 &mut wrapped_key[..],
             )
             .map_err(|_| ExportError::EncryptionFailed)?
     };
-    envelope.extend_from_slice(&randomness.wrap_nonce);
-    envelope.extend_from_slice(&wrapped_key[..]);
-    envelope.extend_from_slice(&wrap_tag);
+    prefix[SALT_END..WRAP_NONCE_END].copy_from_slice(&randomness.wrap_nonce);
+    prefix[WRAP_NONCE_END..WRAPPED_KEY_END].copy_from_slice(&wrapped_key[..]);
+    prefix[WRAPPED_KEY_END..WRAP_END].copy_from_slice(&wrap_tag);
+    prefix[WRAP_END..].copy_from_slice(&randomness.payload_nonce);
 
     let payload_tag = cipher(&randomness.data_key)
         .encrypt_in_place_detached(
             Nonce::from_slice(&randomness.payload_nonce),
-            &envelope,
+            &prefix[..WRAP_END],
             payload,
         )
         .map_err(|_| ExportError::EncryptionFailed)?;
-    envelope.extend_from_slice(&randomness.payload_nonce);
-    envelope.extend_from_slice(payload);
-    envelope.extend_from_slice(&payload_tag);
-    Ok(envelope)
+    tag.copy_from_slice(&payload_tag);
+    // The envelope now contains only ciphertext and public framing.
+    Ok(std::mem::take(&mut *envelope))
 }
 
 fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportError> {

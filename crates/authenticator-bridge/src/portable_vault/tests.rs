@@ -92,10 +92,14 @@ fn matches_independent_envelope_and_key_derivation() {
         data_key: Zeroizing::new([0x21; KEY_BYTES]),
         payload_nonce: [0x31; NONCE_BYTES],
     };
-    assert_eq!(
-        seal(&mut EMPTY_VAULT.as_bytes().to_vec(), &entropy, inputs).unwrap(),
-        expected
-    );
+    let vault = SyntheticVault::from_bytes(EMPTY_VAULT.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
+    let envelope = vault
+        .encode(MAX_PLAINTEXT_BYTES, PAYLOAD_START, TAG_BYTES)
+        .unwrap();
+    let allocation = envelope.as_ptr();
+    let sealed = seal_encoded(envelope, &entropy, inputs).unwrap();
+    assert!(std::ptr::eq(sealed.as_ptr(), allocation));
+    assert_eq!(sealed, expected);
     let vault = open(&expected, &entropy).unwrap();
     assert_eq!(serde_json::to_string(&vault).unwrap(), EMPTY_VAULT);
 }
@@ -135,7 +139,7 @@ fn matches_the_independent_populated_vault_envelope() {
     );
     let json = fixture.plaintext;
     let vault = SyntheticVault::from_bytes(json.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
-    let mut payload = vault.to_bytes(MAX_PLAINTEXT_BYTES).unwrap();
+    let payload = vault.to_bytes(MAX_PLAINTEXT_BYTES).unwrap();
     assert_eq!(&payload[..], json.as_bytes());
 
     // Public fixed inputs used by the independent Node.js and Python fixture.
@@ -146,7 +150,10 @@ fn matches_the_independent_populated_vault_envelope() {
         data_key: Zeroizing::new([inputs.data_key_byte; KEY_BYTES]),
         payload_nonce: [inputs.payload_nonce_byte; NONCE_BYTES],
     };
-    assert_eq!(seal(&mut payload, &entropy, randomness).unwrap(), expected);
+    assert_eq!(
+        export_with_randomness(&vault, &entropy, || Ok(randomness)).unwrap(),
+        expected
+    );
     assert!(open(&expected, &entropy).unwrap() == vault);
 
     let mut replaced = expected;
@@ -165,7 +172,7 @@ fn rejects_a_valid_replacement_wrapper_for_the_same_data_key() {
     let entropy = node_entropy();
     let data_key_bytes = [0x21; KEY_BYTES];
     let mut envelope = seal(
-        &mut EMPTY_VAULT.as_bytes().to_vec(),
+        EMPTY_VAULT.as_bytes(),
         &entropy,
         ExportRandomness {
             salt: [2; KEY_BYTES],
@@ -254,7 +261,7 @@ fn validates_authenticated_json_before_returning_a_vault() {
         format!("{EMPTY_VAULT}{{}}"),
     ] {
         let envelope = seal(
-            &mut json.into_bytes(),
+            json.as_bytes(),
             &entropy,
             ExportRandomness::generate().unwrap(),
         )
@@ -271,24 +278,19 @@ fn accepts_json_whitespace_and_checks_the_provisional_metadata_rules() {
     let entropy = node_entropy();
     let vault_id = "abcdef0123456789abcdef0123456789";
     let json = EMPTY_VAULT.replace(&"0".repeat(32), vault_id);
-    let mut padded = format!(" \t\r\n{json}\n").into_bytes();
-    let envelope = seal(&mut padded, &entropy, ExportRandomness::generate().unwrap()).unwrap();
+    let padded = format!(" \t\r\n{json}\n").into_bytes();
+    let envelope = seal(&padded, &entropy, ExportRandomness::generate().unwrap()).unwrap();
     let vault = open(&envelope, &entropy).unwrap();
     assert_eq!(vault.vault_id, vault_id);
     assert_eq!(vault.export_counter, 1);
     assert_eq!(vault.issued_at, 0);
 
-    for mut payload in [
+    for payload in [
         json.replace(vault_id, &vault_id.to_ascii_uppercase())
             .into_bytes(),
         format!("\u{feff}{json}").into_bytes(),
     ] {
-        let envelope = seal(
-            &mut payload,
-            &entropy,
-            ExportRandomness::generate().unwrap(),
-        )
-        .unwrap();
+        let envelope = seal(&payload, &entropy, ExportRandomness::generate().unwrap()).unwrap();
         assert_eq!(
             open(&envelope, &entropy).err(),
             Some(ExportError::InvalidPayload)
@@ -298,14 +300,9 @@ fn accepts_json_whitespace_and_checks_the_provisional_metadata_rules() {
 
 #[test]
 fn rejects_an_authenticated_array_of_positional_fields() {
-    let mut payload = br#"[1,"00000000000000000000000000000000",1,0,[]]"#.to_vec();
+    let payload = br#"[1,"00000000000000000000000000000000",1,0,[]]"#.to_vec();
     let entropy = node_entropy();
-    let envelope = seal(
-        &mut payload,
-        &entropy,
-        ExportRandomness::generate().unwrap(),
-    )
-    .unwrap();
+    let envelope = seal(&payload, &entropy, ExportRandomness::generate().unwrap()).unwrap();
     assert_eq!(
         open(&envelope, &entropy).err(),
         Some(ExportError::InvalidPayload)
@@ -315,13 +312,8 @@ fn rejects_an_authenticated_array_of_positional_fields() {
 #[test]
 fn validates_short_authenticated_payloads_at_the_json_boundary() {
     let entropy = node_entropy();
-    for mut payload in [Vec::new(), b"{}".to_vec()] {
-        let envelope = seal(
-            &mut payload,
-            &entropy,
-            ExportRandomness::generate().unwrap(),
-        )
-        .unwrap();
+    for payload in [Vec::new(), b"{}".to_vec()] {
+        let envelope = seal(&payload, &entropy, ExportRandomness::generate().unwrap()).unwrap();
         assert_eq!(envelope.len(), OVERHEAD + payload.len());
         assert_eq!(
             open(&envelope, &entropy).err(),
@@ -335,7 +327,7 @@ fn bounds_the_payload_at_one_mebibyte() {
     let entropy = node_entropy();
     let mut bytes = EMPTY_VAULT.as_bytes().to_vec();
     bytes.resize(MAX_PLAINTEXT_BYTES, b' ');
-    let mut envelope = seal(&mut bytes, &entropy, ExportRandomness::generate().unwrap()).unwrap();
+    let mut envelope = seal(&bytes, &entropy, ExportRandomness::generate().unwrap()).unwrap();
     assert_eq!(OVERHEAD, 128);
     assert_eq!(envelope.len(), OVERHEAD + MAX_PLAINTEXT_BYTES);
     assert!(open(&envelope, &entropy).is_ok());
@@ -347,7 +339,7 @@ fn bounds_the_payload_at_one_mebibyte() {
     );
     bytes.push(b' ');
     assert_eq!(
-        seal(&mut bytes, &entropy, ExportRandomness::generate().unwrap()).err(),
+        seal(&bytes, &entropy, ExportRandomness::generate().unwrap()).err(),
         Some(ExportError::InvalidSize)
     );
 }
@@ -489,7 +481,7 @@ fn rejects_authenticated_invalid_nested_records() {
     let entropy = node_entropy();
     for (case, json) in cases {
         let envelope = seal(
-            &mut json.into_bytes(),
+            json.as_bytes(),
             &entropy,
             ExportRandomness::generate().unwrap(),
         )
@@ -618,12 +610,7 @@ fn restore_reader_stops_at_the_first_byte_over_the_limit() {
     let phrase = synthetic_recovery_phrase(&entropy);
     let mut payload = EMPTY_VAULT.as_bytes().to_vec();
     payload.resize(MAX_PLAINTEXT_BYTES, b' ');
-    let envelope = seal(
-        &mut payload,
-        &entropy,
-        ExportRandomness::generate().unwrap(),
-    )
-    .unwrap();
+    let envelope = seal(&payload, &entropy, ExportRandomness::generate().unwrap()).unwrap();
     assert_eq!(envelope.len(), MAX_ENVELOPE_BYTES);
 
     let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
@@ -697,12 +684,7 @@ fn rejects_invalid_phrase_or_export_before_returning_any_preview() {
             Some(PreviewError::CannotOpen)
         );
     }
-    let invalid_payload = seal(
-        &mut b"{}".to_vec(),
-        &entropy,
-        ExportRandomness::generate().unwrap(),
-    )
-    .unwrap();
+    let invalid_payload = seal(b"{}", &entropy, ExportRandomness::generate().unwrap()).unwrap();
     assert_eq!(
         state
             .prepare_restore(invalid_payload.as_slice(), &phrase)
