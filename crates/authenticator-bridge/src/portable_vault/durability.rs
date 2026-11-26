@@ -15,10 +15,12 @@ use super::restore::{
     AuthenticatedExport, ConfirmError, PendingRestore, PreviewError, ReserveExportError,
     ReservedExport, RestoreConfirmation, RestorePreview, RestoreState,
 };
-use super::tests::{node_entropy, restore_fixture, synthetic_recovery_phrase};
+use super::tests::{
+    node_entropy, populated_payload_at_export_limit, restore_fixture, synthetic_recovery_phrase,
+};
 use super::{
     export, open, ExportError, ExportRandomness, FramedEnvelope, RandomError, SecretKey,
-    SyntheticVault, KEY_BYTES, NONCE_BYTES,
+    SyntheticVault, KEY_BYTES, MAX_ENVELOPE_BYTES, MAX_PLAINTEXT_BYTES, NONCE_BYTES,
 };
 
 const FIXTURE_VAULT_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -453,24 +455,27 @@ fn retrying_a_partial_save_keeps_the_sealed_bytes_and_counter() {
 }
 
 #[test]
-fn saved_export_restores_into_a_fresh_database_after_confirmation() {
+fn exact_limit_export_survives_file_restore_and_database_reopen() {
     use super::restore::RestoreHistory;
 
     let directory = tempfile::tempdir().unwrap();
     let source = directory.path().join("source.sqlite");
     let destination = directory.path().join("destination.sqlite");
     let file = directory.path().join("vault.sotv");
-    let original = restore_fixture(FIXTURE_VAULT_ID, 6, 2);
+    let plaintext = populated_payload_at_export_limit(FIXTURE_VAULT_ID, 6).to_string();
+    let original = SyntheticVault::from_bytes(plaintext.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
     seed_database(&source, &original).unwrap();
     initialise_database(&destination).unwrap();
 
     let entropy = node_entropy();
     let phrase = synthetic_recovery_phrase(&entropy);
-    let sealed = reserve_durably(&mut open_database(&source).unwrap(), 42)
+    // Keep the metadata widths stable so the new export stays at the limit.
+    let sealed = reserve_durably(&mut open_database(&source).unwrap(), 4)
         .unwrap()
         .seal(&entropy)
         .unwrap();
     save_fixture_export(directory.path(), &file, |writer| writer.write_all(&sealed)).unwrap();
+    assert_eq!(file.metadata().unwrap().len(), MAX_ENVELOPE_BYTES as u64);
 
     let mut db = open_database(&destination).unwrap();
     let pending =
@@ -490,7 +495,7 @@ fn saved_export_restores_into_a_fresh_database_after_confirmation() {
     let restored = load_state(&db, None).unwrap();
     let mut expected = original;
     expected.export_counter = 7;
-    expected.issued_at = 42;
+    expected.issued_at = 4;
     assert!(restored.active() == Some(&expected));
     assert_eq!(persisted_counter(&db, FIXTURE_VAULT_ID), 7);
 }

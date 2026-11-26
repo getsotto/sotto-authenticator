@@ -540,12 +540,11 @@ fn accepts_each_collection_limit_and_rejects_one_more_item() {
     }
 }
 
-#[test]
-fn restores_a_record_heavy_vault_at_the_export_size_limit() {
-    use restore::{RestoreConfirmation, RestoreState};
-
+pub(super) fn populated_payload_at_export_limit(vault_id: &str, counter: u64) -> serde_json::Value {
     let (projects, instances, entries) = (8, 16, 64);
     let mut large = populated_payload(projects, instances, entries);
+    large["vaultId"] = vault_id.into();
+    large["exportCounter"] = counter.into();
     let entry_count = projects * instances * entries;
     // Put every remaining byte into labels so decoding has to retain the records.
     let remaining_bytes = MAX_PLAINTEXT_BYTES - large.to_string().len();
@@ -563,6 +562,14 @@ fn restores_a_record_heavy_vault_at_the_export_size_limit() {
         }
     }
     assert_eq!(index, 8192);
+    large
+}
+
+#[test]
+fn restores_a_record_heavy_vault_at_the_export_size_limit() {
+    use restore::{RestoreConfirmation, RestoreState};
+
+    let mut large = populated_payload_at_export_limit("00000000000000000000000000000000", 1);
     let plaintext = large.to_string();
     assert_eq!(plaintext.len(), MAX_PLAINTEXT_BYTES);
     let vault = SyntheticVault::from_bytes(plaintext.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
