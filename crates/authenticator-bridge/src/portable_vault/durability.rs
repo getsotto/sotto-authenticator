@@ -17,8 +17,8 @@ use super::restore::{
 };
 use super::tests::{node_entropy, restore_fixture, synthetic_recovery_phrase};
 use super::{
-    export, open, ExportError, ExportRandomness, RandomError, SecretKey, SyntheticVault, KEY_BYTES,
-    NONCE_BYTES,
+    export, open, ExportError, ExportRandomness, FramedEnvelope, RandomError, SecretKey,
+    SyntheticVault, KEY_BYTES, NONCE_BYTES,
 };
 
 const FIXTURE_VAULT_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -94,7 +94,7 @@ fn load_state(db: &Connection, incoming_id: Option<&str>) -> Result<RestoreState
         )
         .optional()?;
     let active = envelope
-        .map(|bytes| open(&bytes, &fixture_key()))
+        .map(|bytes| FramedEnvelope::parse(bytes)?.decode(&fixture_key()))
         .transpose()
         .map_err(FixtureError::Envelope)?;
     let active_id = active.as_ref().map(|vault| vault.vault_id.as_str());
@@ -189,7 +189,9 @@ impl ActiveExportSnapshot {
             },
         )?;
         let envelope = envelope.ok_or(FixtureError::Reserve(ReserveExportError::NoActiveVault))?;
-        let vault = open(&envelope, &fixture_key()).map_err(FixtureError::Envelope)?;
+        let vault = FramedEnvelope::parse(envelope)
+            .and_then(|framed| framed.decode(&fixture_key()))
+            .map_err(FixtureError::Envelope)?;
         Ok(Self { version, vault })
     }
 
@@ -608,6 +610,36 @@ fn rejected_file_imports_preserve_the_stored_vault_and_history() {
         let tx = reopened.transaction().unwrap();
         assert!(store_stamp(&tx, FIXTURE_VAULT_ID).unwrap() == before);
     }
+}
+
+#[test]
+fn unreadable_stored_vault_cannot_advance_the_export_counter() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("vault.sqlite");
+    let vault = restore_fixture(FIXTURE_VAULT_ID, 6, 1);
+    seed_database(&path, &vault).unwrap();
+    let mut db = open_database(&path).unwrap();
+
+    let mut envelope = export(&vault, &fixture_key()).unwrap();
+    *envelope.last_mut().unwrap() ^= 1;
+    db.execute(
+        "UPDATE active_vault SET envelope = ?1 WHERE slot = 1",
+        [&envelope],
+    )
+    .unwrap();
+
+    assert!(matches!(
+        load_state(&db, None),
+        Err(FixtureError::Envelope(ExportError::AuthenticationFailed))
+    ));
+    assert!(matches!(
+        reserve_durably(&mut db, 1),
+        Err(FixtureError::Envelope(ExportError::AuthenticationFailed))
+    ));
+    drop(db);
+
+    let reopened = open_database(&path).unwrap();
+    assert_eq!(persisted_counter(&reopened, FIXTURE_VAULT_ID), 6);
 }
 
 #[test]

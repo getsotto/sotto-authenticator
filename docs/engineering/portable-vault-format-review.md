@@ -79,6 +79,10 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   and the active and incoming histories for restore previews. The fixture
   preserves unrelated counters on disk.
   Export reservation decodes the selected vault before taking the write lock.
+  The fixture reuses the SQLite read buffer when loading the active vault
+  or opening an export snapshot. If the stored envelope fails authentication,
+  both reads fail and the export counter stays at its previous value after
+  reopening the database.
   The fixture rechecks the store and vault revision under the lock and uses
   the latest counter. If a replacement changed the revision, a new
   reservation must select the active vault again.
