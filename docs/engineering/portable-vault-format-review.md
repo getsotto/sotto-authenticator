@@ -18,6 +18,9 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
 - **Bounded restore reads.** The Rust preview accepts a valid envelope at the
   provisional limit. It stops after the first byte over the limit and
   rejects read failures even after receiving a valid envelope prefix.
+  The reader grows the buffer as bytes arrive, with capacity requests
+  capped at the provisional envelope limit. The EOF probe uses a stack
+  buffer, and an interrupted read is retried.
   It decrypts the payload within the owned read buffer and clears that
   buffer on drop. The host test verifies allocation reuse. Peak memory
   on mobile devices still needs measurement.
