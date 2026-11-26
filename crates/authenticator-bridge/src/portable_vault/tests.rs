@@ -106,6 +106,8 @@ fn matches_independent_envelope_and_key_derivation() {
 
 #[test]
 fn matches_the_independent_populated_vault_envelope() {
+    use sha2::Digest;
+
     // The same ID appears in all three record types. The label includes a
     // multibyte character and JSON escapes to exercise the encoded bytes.
     #[derive(serde::Deserialize)]
@@ -116,6 +118,15 @@ fn matches_the_independent_populated_vault_envelope() {
         envelope_hex: String,
         replacement_wrapping_record_hex: String,
         fixed_inputs: FixedInputs,
+        size_limit: SizeLimitFixture,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SizeLimitFixture {
+        plaintext_bytes: usize,
+        fixed_inputs: FixedInputs,
+        envelope_sha256: String,
     }
 
     #[derive(serde::Deserialize)]
@@ -125,6 +136,17 @@ fn matches_the_independent_populated_vault_envelope() {
         wrapping_nonce_byte: u8,
         data_key_byte: u8,
         payload_nonce_byte: u8,
+    }
+
+    impl From<FixedInputs> for ExportRandomness {
+        fn from(inputs: FixedInputs) -> Self {
+            Self {
+                salt: [inputs.salt_byte; KEY_BYTES],
+                wrap_nonce: [inputs.wrapping_nonce_byte; NONCE_BYTES],
+                data_key: Zeroizing::new([inputs.data_key_byte; KEY_BYTES]),
+                payload_nonce: [inputs.payload_nonce_byte; NONCE_BYTES],
+            }
+        }
     }
 
     let fixture: Fixture =
@@ -143,15 +165,8 @@ fn matches_the_independent_populated_vault_envelope() {
     assert_eq!(&payload[..], json.as_bytes());
 
     // Public fixed inputs used by the independent Node.js and Python fixture.
-    let inputs = fixture.fixed_inputs;
-    let randomness = ExportRandomness {
-        salt: [inputs.salt_byte; KEY_BYTES],
-        wrap_nonce: [inputs.wrapping_nonce_byte; NONCE_BYTES],
-        data_key: Zeroizing::new([inputs.data_key_byte; KEY_BYTES]),
-        payload_nonce: [inputs.payload_nonce_byte; NONCE_BYTES],
-    };
     assert_eq!(
-        export_with_randomness(&vault, &entropy, || Ok(randomness)).unwrap(),
+        export_with_randomness(&vault, &entropy, || Ok(fixture.fixed_inputs.into())).unwrap(),
         expected
     );
     assert!(open(&expected, &entropy).unwrap() == vault);
@@ -165,6 +180,18 @@ fn matches_the_independent_populated_vault_envelope() {
         open(&replaced, &entropy).err(),
         Some(ExportError::AuthenticationFailed)
     );
+
+    let size_limit = fixture.size_limit;
+    assert_eq!(size_limit.plaintext_bytes, MAX_PLAINTEXT_BYTES);
+    let mut padded = json.into_bytes();
+    padded.resize(size_limit.plaintext_bytes, b' ');
+    let maximum = seal(&padded, &entropy, size_limit.fixed_inputs.into()).unwrap();
+    assert_eq!(maximum.len(), MAX_ENVELOPE_BYTES);
+    assert_eq!(
+        HEXLOWER.encode(&Sha256::digest(&maximum)),
+        size_limit.envelope_sha256
+    );
+    assert!(open(&maximum, &entropy).unwrap() == vault);
 }
 
 #[test]

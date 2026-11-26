@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, hkdfSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 // Fixed inputs belong to this public synthetic vector.
@@ -7,7 +7,7 @@ const fixturePath = new URL(
   '../crates/authenticator-bridge/src/portable_vault/fixtures/populated-vault.json',
   import.meta.url,
 );
-const { entropyHex, plaintext, envelopeHex, replacementWrappingRecordHex, fixedInputs } =
+const { entropyHex, plaintext, envelopeHex, replacementWrappingRecordHex, fixedInputs, sizeLimit } =
   JSON.parse(readFileSync(fixturePath, 'utf8'));
 assert.match(entropyHex, /^[0-9a-f]{64}$/);
 assert.match(envelopeHex, /^(?:[0-9a-f]{2})+$/);
@@ -37,8 +37,8 @@ function deriveWrappingKey(salt) {
   return Buffer.from(hkdfSync('sha256', entropy, salt, context, 32));
 }
 
-const wrappingKey = deriveWrappingKey(envelope.subarray(8, 40));
 function unwrapDataKey(bytes) {
+  const wrappingKey = deriveWrappingKey(bytes.subarray(8, 40));
   return decrypt(wrappingKey, bytes.subarray(40, 52), bytes.subarray(52, 100), bytes.subarray(0, 40));
 }
 
@@ -52,15 +52,19 @@ const decoded = openPayload(dataKey, envelope);
 assert.deepEqual(decoded, message);
 console.log('Populated vault fixture authenticated and matched the expected bytes.');
 
-const salt = Buffer.alloc(32, fixedInputs.saltByte);
-const wrappingNonce = Buffer.alloc(12, fixedInputs.wrappingNonceByte);
-const fixedDataKey = Buffer.alloc(32, fixedInputs.dataKeyByte);
-const payloadNonce = Buffer.alloc(12, fixedInputs.payloadNonceByte);
-const wrappingData = Buffer.concat([header, salt]);
-const wrapped = encrypt(deriveWrappingKey(salt), wrappingNonce, fixedDataKey, wrappingData);
-const payloadData = Buffer.concat([wrappingData, wrappingNonce, wrapped]);
-const sealed = encrypt(fixedDataKey, payloadNonce, message, payloadData);
-assert.deepEqual(Buffer.concat([payloadData, payloadNonce, sealed]), envelope);
+function sealFixture(message, inputs) {
+  const salt = Buffer.alloc(32, inputs.saltByte);
+  const wrappingNonce = Buffer.alloc(12, inputs.wrappingNonceByte);
+  const dataKey = Buffer.alloc(32, inputs.dataKeyByte);
+  const payloadNonce = Buffer.alloc(12, inputs.payloadNonceByte);
+  const wrappingData = Buffer.concat([header, salt]);
+  const wrapped = encrypt(deriveWrappingKey(salt), wrappingNonce, dataKey, wrappingData);
+  const payloadData = Buffer.concat([wrappingData, wrappingNonce, wrapped]);
+  const sealed = encrypt(dataKey, payloadNonce, message, payloadData);
+  return Buffer.concat([payloadData, payloadNonce, sealed]);
+}
+
+assert.deepEqual(sealFixture(message, fixedInputs), envelope);
 console.log('Independent sealing reproduced the populated envelope byte for byte.');
 
 const replaced = Buffer.from(envelope);
@@ -69,3 +73,13 @@ const rewrappedDataKey = unwrapDataKey(replaced);
 assert.deepEqual(rewrappedDataKey, dataKey);
 assert.throws(() => openPayload(rewrappedDataKey, replaced), /unable to authenticate/i);
 console.log('Payload authentication rejected the substituted wrapping record.');
+
+assert.equal(sizeLimit.plaintextBytes, 1024 * 1024);
+const padded = Buffer.alloc(sizeLimit.plaintextBytes, 0x20);
+assert.ok(message.length < padded.length);
+message.copy(padded);
+const maximumEnvelope = sealFixture(padded, sizeLimit.fixedInputs);
+assert.equal(maximumEnvelope.length, padded.length + 128);
+assert.equal(createHash('sha256').update(maximumEnvelope).digest('hex'), sizeLimit.envelopeSha256);
+assert.deepEqual(openPayload(unwrapDataKey(maximumEnvelope), maximumEnvelope), padded);
+console.log('Exact-limit envelope authenticated and matched the expected digest.');
