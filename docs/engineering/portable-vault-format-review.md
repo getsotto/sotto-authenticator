@@ -18,6 +18,9 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
 - **Bounded restore reads.** The Rust preview accepts a valid envelope at the
   provisional limit. It stops after the first byte over the limit and
   rejects read failures even after receiving a valid envelope prefix.
+  It decrypts the payload within the owned read buffer and clears that
+  buffer on drop. The host test verifies allocation reuse. Peak memory
+  on mobile devices still needs measurement.
   [Restore reader tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Recovery and failed exports.** Rust matches a public BIP-39 fixture
   and reopens an export using a re-entered phrase. Phrase generation reports

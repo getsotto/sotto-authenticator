@@ -127,14 +127,21 @@ fn seal(
 }
 
 fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportError> {
-    let payload = FramedEnvelope::parse(envelope)?.decrypt(entropy)?;
-    SyntheticVault::from_bytes(&payload, MAX_PLAINTEXT_BYTES)
+    FramedEnvelope::validate(envelope)?;
+    let mut framed = FramedEnvelope(Zeroizing::new(envelope.to_vec()));
+    SyntheticVault::from_bytes(framed.decrypt(entropy)?, MAX_PLAINTEXT_BYTES)
 }
 
-struct FramedEnvelope<'a>(&'a [u8]);
+// The read buffer holds plaintext after the payload tag verifies.
+struct FramedEnvelope(Zeroizing<Vec<u8>>);
 
-impl<'a> FramedEnvelope<'a> {
-    fn parse(envelope: &'a [u8]) -> Result<Self, ExportError> {
+impl FramedEnvelope {
+    fn parse(envelope: Vec<u8>) -> Result<Self, ExportError> {
+        Self::validate(&envelope)?;
+        Ok(Self(Zeroizing::new(envelope)))
+    }
+
+    fn validate(envelope: &[u8]) -> Result<(), ExportError> {
         // Only the fixed fields and tags determine the minimum. The authenticated
         // JSON schema determines which plaintext lengths can actually be valid.
         if !(OVERHEAD..=MAX_ENVELOPE_BYTES).contains(&envelope.len()) {
@@ -146,11 +153,11 @@ impl<'a> FramedEnvelope<'a> {
         if envelope[4..6] != HEADER[4..6] {
             return Err(ExportError::UnsupportedSuite);
         }
-        Ok(Self(envelope))
+        Ok(())
     }
 
-    fn decrypt(self, entropy: &SecretKey) -> Result<Zeroizing<Vec<u8>>, ExportError> {
-        let envelope = self.0;
+    fn decrypt(&mut self, entropy: &SecretKey) -> Result<&[u8], ExportError> {
+        let envelope = &mut self.0;
         let mut data_key = Zeroizing::new([0; KEY_BYTES]);
         data_key.copy_from_slice(&envelope[WRAP_NONCE_END..WRAPPED_KEY_END]);
         {
@@ -165,16 +172,16 @@ impl<'a> FramedEnvelope<'a> {
                 .map_err(|_| ExportError::AuthenticationFailed)?;
         }
 
-        let tag_start = envelope.len() - TAG_BYTES;
-        let mut payload = Zeroizing::new(envelope[PAYLOAD_START..tag_start].to_vec());
+        let (prefix, body) = envelope.split_at_mut(PAYLOAD_START);
+        let (payload, tag) = body.split_at_mut(body.len() - TAG_BYTES);
         // Include the complete wrapping record so even a second valid wrap of this
         // same data key cannot authenticate the original payload.
         cipher(&data_key)
             .decrypt_in_place_detached(
-                Nonce::from_slice(&envelope[WRAP_END..PAYLOAD_START]),
-                &envelope[..WRAP_END],
-                &mut payload,
-                Tag::from_slice(&envelope[tag_start..]),
+                Nonce::from_slice(&prefix[WRAP_END..]),
+                &prefix[..WRAP_END],
+                payload,
+                Tag::from_slice(tag),
             )
             .map_err(|_| ExportError::AuthenticationFailed)?;
 
