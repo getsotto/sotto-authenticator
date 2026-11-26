@@ -138,6 +138,10 @@ It seals the same synthetic plaintext and fixed inputs used by Rust and
 compares the full envelope byte for byte. It also verifies that a
 substituted wrapping record unwraps to the same data key and the payload fails
 authentication with the substituted record. Rust rejects the same input.
+Both implementations also append JSON whitespace to the synthetic payload
+to reach the provisional size limit and verify the sealed envelope against
+the published SHA-256 digest. This exercises the file size boundary with a
+compact fixture. Mobile measurements still need representative record counts.
 [Populated vector](../../crates/authenticator-bridge/src/portable_vault/fixtures/populated-vault.json)
 
 ```sh
