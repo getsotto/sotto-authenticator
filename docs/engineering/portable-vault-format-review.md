@@ -22,6 +22,12 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   buffer on drop. The host test verifies allocation reuse. Peak memory
   on mobile devices still needs measurement.
   [Restore reader tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
+- **Export buffer ownership.** The writer checks the JSON size before
+  allocating the envelope. It serialises the payload into that buffer and
+  encrypts it there. The buffer clears on failure and becomes the returned
+  file bytes on success. The host test verifies that sealing reuses the
+  allocation and reproduces the public fixture.
+  [Envelope and payload tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Recovery and failed exports.** Rust matches a public BIP-39 fixture
   and reopens an export using a re-entered phrase. Phrase generation reports
   unavailable randomness and returns no words when an injected entropy read
