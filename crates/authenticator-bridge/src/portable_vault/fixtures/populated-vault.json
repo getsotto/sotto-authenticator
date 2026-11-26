@@ -8,5 +8,15 @@
     "wrappingNonceByte": 33,
     "dataKeyByte": 49,
     "payloadNonceByte": 65
+  },
+  "sizeLimit": {
+    "plaintextBytes": 1048576,
+    "fixedInputs": {
+      "saltByte": 97,
+      "wrappingNonceByte": 98,
+      "dataKeyByte": 99,
+      "payloadNonceByte": 100
+    },
+    "envelopeSha256": "db4edb0c92314c1459efb114527aa82cc61c322e71a0ec04ff198be3735598d3"
   }
 }
