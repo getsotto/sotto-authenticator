@@ -31,6 +31,12 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   file bytes on success. The host test verifies that sealing reuses the
   allocation and reproduces the public fixture.
   [Envelope and payload tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
+- **Record-heavy size boundary.** The host test exports and restores a vault
+  with 8 projects, 128 instances and 8,192 entries. Labels bring the encoded
+  JSON to exactly 1 MiB. Confirmation restores the complete record tree and
+  counter. Adding one byte to a label triggers the export size limit before
+  the writer requests randomness. Mobile peak memory still needs measurement.
+  [Envelope and payload tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Recovery and failed exports.** Rust matches a public BIP-39 fixture
   and reopens an export using a re-entered phrase. Phrase generation reports
   unavailable randomness and returns no words when an injected entropy read
