@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::sync::Arc;
 
 use super::payload::{SyntheticVault, MAX_JSON_INTEGER};
@@ -95,13 +95,7 @@ impl AuthenticatedExport {
 
     pub(super) fn read(reader: impl Read, phrase: &str) -> Result<Self, PreviewError> {
         let phrase = RecoveryPhrase::parse(phrase).map_err(|_| PreviewError::InvalidPhrase)?;
-        // Read one extra byte so a valid prefix cannot hide an oversized file.
-        let mut envelope = Vec::new();
-        reader
-            .take((MAX_ENVELOPE_BYTES + 1) as u64)
-            .read_to_end(&mut envelope)
-            .map_err(|_| PreviewError::ReadFailed)?;
-        let mut framed = FramedEnvelope::parse(envelope)?;
+        let mut framed = FramedEnvelope::parse(read_envelope(reader)?)?;
         let payload = {
             let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
             drop(phrase);
@@ -112,6 +106,72 @@ impl AuthenticatedExport {
             MAX_PLAINTEXT_BYTES,
         )?))
     }
+}
+
+fn read_envelope(mut reader: impl Read) -> Result<Vec<u8>, PreviewError> {
+    let mut envelope = Vec::new();
+    let mut chunk = [0; 8 * 1024];
+    loop {
+        let remaining = MAX_ENVELOPE_BYTES - envelope.len();
+        // Probe for EOF without extending the buffer past the file limit.
+        let requested = chunk.len().min(remaining + 1);
+        let bytes_read = match reader.read(&mut chunk[..requested]) {
+            Ok(0) => return Ok(envelope),
+            Ok(bytes_read) => bytes_read,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(_) => return Err(PreviewError::ReadFailed),
+        };
+        if bytes_read > remaining {
+            return Err(PreviewError::InvalidFile);
+        }
+
+        let required = envelope.len() + bytes_read;
+        if required > envelope.capacity() {
+            // Keep geometric growth for short reads while clamping the last step.
+            let capacity = (2 * envelope.capacity())
+                .max(required)
+                .min(MAX_ENVELOPE_BYTES);
+            envelope
+                .try_reserve_exact(capacity - envelope.len())
+                .map_err(|_| PreviewError::ReadFailed)?;
+        }
+        envelope.extend_from_slice(&chunk[..bytes_read]);
+    }
+}
+
+#[test]
+fn restore_buffer_capacity_stays_within_the_envelope_limit() {
+    for length in [super::OVERHEAD, MAX_ENVELOPE_BYTES - 1, MAX_ENVELOPE_BYTES] {
+        let buffer = read_envelope(std::io::repeat(0).take(length as u64)).unwrap();
+        assert_eq!(buffer.len(), length);
+        assert!(
+            buffer.capacity() <= MAX_ENVELOPE_BYTES,
+            "{length} input bytes allocated capacity for {}",
+            buffer.capacity()
+        );
+    }
+}
+
+#[test]
+fn restore_reader_retries_an_interrupted_eof_check() {
+    use std::io;
+
+    struct InterruptedOnce(bool);
+
+    impl Read for InterruptedOnce {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            if std::mem::replace(&mut self.0, true) {
+                Ok(0)
+            } else {
+                Err(ErrorKind::Interrupted.into())
+            }
+        }
+    }
+
+    let reader = io::repeat(0)
+        .take(MAX_ENVELOPE_BYTES as u64)
+        .chain(InterruptedOnce(false));
+    assert_eq!(read_envelope(reader).unwrap().len(), MAX_ENVELOPE_BYTES);
 }
 
 pub(super) struct RestoreState {
