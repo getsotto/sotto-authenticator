@@ -566,12 +566,7 @@ fn rejected_file_imports_preserve_the_stored_vault_and_history() {
     unsupported[4] ^= 1;
     let mut malformed = sealed.clone();
     malformed[0] ^= 1;
-    let invalid_payload = seal(
-        &mut b"{}".to_vec(),
-        &entropy,
-        ExportRandomness::generate().unwrap(),
-    )
-    .unwrap();
+    let invalid_payload = seal(b"{}", &entropy, ExportRandomness::generate().unwrap()).unwrap();
 
     for (bytes, recovery_phrase, expected_error) in [
         (Vec::new(), &phrase, PreviewError::InvalidFile),

@@ -146,6 +146,15 @@ impl SyntheticVault {
     }
 
     pub(super) fn to_bytes(&self, limit: usize) -> Result<Zeroizing<Vec<u8>>, ExportError> {
+        self.encode(limit, 0, 0)
+    }
+
+    pub(super) fn encode(
+        &self,
+        limit: usize,
+        prefix: usize,
+        suffix: usize,
+    ) -> Result<Zeroizing<Vec<u8>>, ExportError> {
         self.validate()?;
         let mut size = PayloadSize { bytes: 0, limit };
         serde_json::to_writer(&mut size, self).map_err(|error| {
@@ -158,8 +167,11 @@ impl SyntheticVault {
         })?;
         // Allocate the complete buffer once so growth does not leave earlier
         // plaintext allocations outside the Zeroizing buffer.
-        let mut output = Zeroizing::new(Vec::with_capacity(size.bytes));
+        let mut output = Zeroizing::new(Vec::with_capacity(prefix + size.bytes + suffix));
+        output.resize(prefix, 0);
         serde_json::to_writer(&mut *output, self).map_err(|_| ExportError::InvalidPayload)?;
+        let total_bytes = output.len() + suffix;
+        output.resize(total_bytes, 0);
         Ok(output)
     }
 
