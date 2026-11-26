@@ -128,8 +128,7 @@ fn seal(
 
 fn open(envelope: &[u8], entropy: &SecretKey) -> Result<SyntheticVault, ExportError> {
     FramedEnvelope::validate(envelope)?;
-    let mut framed = FramedEnvelope(Zeroizing::new(envelope.to_vec()));
-    SyntheticVault::from_bytes(framed.decrypt(entropy)?, MAX_PLAINTEXT_BYTES)
+    FramedEnvelope(Zeroizing::new(envelope.to_vec())).decode(entropy)
 }
 
 // The read buffer holds plaintext after the payload tag verifies.
@@ -139,6 +138,10 @@ impl FramedEnvelope {
     fn parse(envelope: Vec<u8>) -> Result<Self, ExportError> {
         Self::validate(&envelope)?;
         Ok(Self(Zeroizing::new(envelope)))
+    }
+
+    fn decode(mut self, entropy: &SecretKey) -> Result<SyntheticVault, ExportError> {
+        SyntheticVault::from_bytes(self.decrypt(entropy)?, MAX_PLAINTEXT_BYTES)
     }
 
     fn validate(envelope: &[u8]) -> Result<(), ExportError> {
