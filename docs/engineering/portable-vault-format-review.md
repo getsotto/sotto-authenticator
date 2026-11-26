@@ -20,10 +20,13 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   rejects read failures even after receiving a valid envelope prefix.
   [Restore reader tests](../../crates/authenticator-bridge/src/portable_vault/tests.rs)
 - **Recovery and failed exports.** Rust matches a public BIP-39 fixture
-  and reopens an export using a re-entered phrase. The host SQLite fixture
-  injects a partial failure at each of the four random reads. Each fails
-  the export and keeps the reservation, and the next successful export opens
-  with a new counter. [Phrase tests](../../crates/authenticator-bridge/src/portable_vault/recovery_phrase.rs) · [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
+  and reopens an export using a re-entered phrase. Phrase generation reports
+  unavailable randomness and returns no words when an injected entropy read
+  fails, even after writing some or all of the requested bytes. The host
+  SQLite fixture injects a partial failure at each of the four export
+  random reads. Each fails the export and keeps the reservation, and the
+  next successful export opens with a new counter.
+  [Phrase tests](../../crates/authenticator-bridge/src/portable_vault/recovery_phrase.rs) · [Durability tests](../../crates/authenticator-bridge/src/portable_vault/durability.rs)
 - **Recovery phrase input.** The prototype rejects inputs over 512 bytes
   before scanning them. This includes whitespace and leaves room for every
   generated 24-word English phrase. Native input controls and paste
