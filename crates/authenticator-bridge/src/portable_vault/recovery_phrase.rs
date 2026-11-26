@@ -2,7 +2,7 @@ use aes_gcm::aead::{rand_core::RngCore, OsRng};
 use bip39::{Language, Mnemonic};
 use zeroize::Zeroizing;
 
-use super::{SecretKey, KEY_BYTES};
+use super::{RandomError, SecretKey, KEY_BYTES};
 
 const WORD_COUNT: usize = 24;
 // Leave room for pasted line breaks and spacing while bounding parser work.
@@ -20,10 +20,14 @@ pub(super) struct RecoveryPhrase(Mnemonic);
 
 impl RecoveryPhrase {
     pub(super) fn generate() -> Result<Self, RecoveryPhraseError> {
+        Self::generate_with_entropy_source(|bytes| OsRng.try_fill_bytes(bytes))
+    }
+
+    fn generate_with_entropy_source(
+        fill: impl FnOnce(&mut [u8]) -> Result<(), RandomError>,
+    ) -> Result<Self, RecoveryPhraseError> {
         let mut entropy = Zeroizing::new([0; KEY_BYTES]);
-        OsRng
-            .try_fill_bytes(&mut entropy[..])
-            .map_err(|_| RecoveryPhraseError::RandomnessUnavailable)?;
+        fill(&mut entropy[..]).map_err(|_| RecoveryPhraseError::RandomnessUnavailable)?;
         Ok(Self::from_entropy(&entropy))
     }
 
@@ -71,6 +75,7 @@ impl RecoveryPhrase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU32;
     use zeroize::{Zeroize, ZeroizeOnDrop};
 
     fn zero_entropy_phrase() -> String {
@@ -108,6 +113,23 @@ mod tests {
         assert_eq!(first.words().count(), WORD_COUNT);
         assert_eq!(second.words().count(), WORD_COUNT);
         assert!(first.entropy().unwrap() != second.entropy().unwrap());
+    }
+
+    #[test]
+    fn returns_no_phrase_when_the_entropy_source_fails() {
+        // The source can report failure even after filling the entire buffer.
+        for written in [0, KEY_BYTES - 1, KEY_BYTES] {
+            let result = RecoveryPhrase::generate_with_entropy_source(|bytes| {
+                assert_eq!(bytes.len(), KEY_BYTES);
+                bytes[..written].fill(0xa5);
+                Err(NonZeroU32::new(RandomError::CUSTOM_START).unwrap().into())
+            });
+            assert_eq!(
+                result.err(),
+                Some(RecoveryPhraseError::RandomnessUnavailable),
+                "entropy source reported failure after writing {written} bytes"
+            );
+        }
     }
 
     #[test]
