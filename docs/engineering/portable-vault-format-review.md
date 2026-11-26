@@ -80,6 +80,9 @@ cryptographic and platform review. [ADR 0005](../decisions/0005-portable-encrypt
   the previous vault and counter after an uncommitted writer exits.
   A fresh database also accepts a saved synthetic export and retains the
   restored records and counter after confirmation and reopening.
+  That test saves the 8,192-entry vault as a file at the provisional envelope
+  limit. Before confirmation, the destination still has no active vault or
+  counter.
   Invalid file imports into a populated database preserve its existing
   records, counter and revision after reopening.
   The host fixture finishes file reads and authentication before taking a
