@@ -596,6 +596,19 @@ fn previews_authenticated_metadata_against_history_for_the_same_vault() {
 }
 
 #[test]
+fn decrypts_the_payload_inside_the_owned_envelope_buffer() {
+    let envelope = HEXLOWER.decode(NODE_ENVELOPE.as_bytes()).unwrap();
+    let slot = envelope[PAYLOAD_START..].as_ptr();
+    let mut framed = FramedEnvelope::parse(envelope).unwrap();
+    let payload = framed.decrypt(&node_entropy()).unwrap();
+    assert_eq!(payload, EMPTY_VAULT.as_bytes());
+    assert!(
+        std::ptr::eq(payload.as_ptr(), slot),
+        "payload moved to another allocation"
+    );
+}
+
+#[test]
 fn restore_reader_stops_at_the_first_byte_over_the_limit() {
     use restore::{PreviewError, RestoreState};
     use std::io::{self, Read};

@@ -101,14 +101,14 @@ impl AuthenticatedExport {
             .take((MAX_ENVELOPE_BYTES + 1) as u64)
             .read_to_end(&mut envelope)
             .map_err(|_| PreviewError::ReadFailed)?;
-        let framed = FramedEnvelope::parse(&envelope)?;
+        let mut framed = FramedEnvelope::parse(envelope)?;
         let payload = {
             let entropy = phrase.entropy().map_err(|_| PreviewError::InvalidPhrase)?;
             drop(phrase);
             framed.decrypt(&entropy)?
         };
         Ok(Self(SyntheticVault::from_bytes(
-            &payload,
+            payload,
             MAX_PLAINTEXT_BYTES,
         )?))
     }
