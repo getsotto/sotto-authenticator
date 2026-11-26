@@ -541,24 +541,61 @@ fn accepts_each_collection_limit_and_rejects_one_more_item() {
 }
 
 #[test]
-fn applies_export_size_policy_separately_from_schema_validation() {
-    let mut large = populated_payload(16, 16, 64);
+fn restores_a_record_heavy_vault_at_the_export_size_limit() {
+    use restore::{RestoreConfirmation, RestoreState};
+
+    let (projects, instances, entries) = (8, 16, 64);
+    let mut large = populated_payload(projects, instances, entries);
+    let entry_count = projects * instances * entries;
+    // Put every remaining byte into labels so decoding has to retain the records.
+    let remaining_bytes = MAX_PLAINTEXT_BYTES - large.to_string().len();
+    let extra_per_entry = remaining_bytes / entry_count;
+    let entries_with_extra_byte = remaining_bytes % entry_count;
+    let mut index = 0;
     for project in large["projects"].as_array_mut().unwrap() {
         for instance in project["instances"].as_array_mut().unwrap() {
             for entry in instance["entries"].as_array_mut().unwrap() {
-                entry["label"] = "e".repeat(128).into();
+                let extra = extra_per_entry + usize::from(index < entries_with_extra_byte);
+                let label = entry["label"].as_str().unwrap();
+                entry["label"] = format!("{label}{}", "x".repeat(extra)).into();
+                index += 1;
             }
         }
     }
+    assert_eq!(index, 8192);
     let plaintext = large.to_string();
-    assert!(plaintext.len() > MAX_PLAINTEXT_BYTES);
+    assert_eq!(plaintext.len(), MAX_PLAINTEXT_BYTES);
+    let vault = SyntheticVault::from_bytes(plaintext.as_bytes(), MAX_PLAINTEXT_BYTES).unwrap();
+    let entropy = node_entropy();
+    let envelope = export(&vault, &entropy).unwrap();
+    assert_eq!(envelope.len(), MAX_ENVELOPE_BYTES);
+
+    let phrase = synthetic_recovery_phrase(&entropy);
+    let mut state = RestoreState::new(None, Default::default());
+    let pending = state.prepare_restore(envelope.as_slice(), &phrase).unwrap();
+    pending
+        .confirm(&mut state, RestoreConfirmation::Replace)
+        .unwrap();
+    assert!(state.active() == Some(&vault));
+    assert_eq!(
+        state.highest_counter(&vault.vault_id),
+        Some(vault.export_counter)
+    );
+
+    let label = &mut large["projects"][0]["instances"][0]["entries"][0]["label"];
+    *label = format!("{}x", label.as_str().unwrap()).into();
+    let plaintext = large.to_string();
+    assert_eq!(plaintext.len(), MAX_PLAINTEXT_BYTES + 1);
     assert_eq!(
         SyntheticVault::from_bytes(plaintext.as_bytes(), MAX_PLAINTEXT_BYTES).err(),
         Some(ExportError::InvalidSize)
     );
     let vault = SyntheticVault::from_bytes(plaintext.as_bytes(), plaintext.len()).unwrap();
     assert_eq!(
-        export(&vault, &node_entropy()).err(),
+        export_with_randomness(&vault, &entropy, || panic!(
+            "oversized vault requested randomness"
+        ))
+        .err(),
         Some(ExportError::InvalidSize)
     );
 }
